@@ -15,4 +15,4 @@ jobs:
       - run: uv run ruff format --check .
       - run: uv run pytest
       - run: ./scripts/build.sh
-      - run: python3 dist/appman.pyz --version
+      - run: python3 dist/appship.pyz --version

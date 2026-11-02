@@ -2,7 +2,7 @@
 
 The registry, app directories, deb build dirs, desktop Exec/Icon paths, and
 user plugins are migrated. Unrelated files in ``~/local`` are left untouched.
-``appman migrate`` is a dry-run by default; ``--apply`` performs the move.
+``appship migrate`` is a dry-run by default; ``--apply`` performs the move.
 """
 
 import os
@@ -60,7 +60,7 @@ def _rewrite_desktop(path, replacements, dry_run):
         return False
     if dry_run:
         return True
-    backup = f"{path}.appman-migrate-{_stamp()}"
+    backup = f"{path}.appship-migrate-{_stamp()}"
     try:
         shutil.copy2(path, backup)
         with open(path, "w", encoding="utf-8") as fh:
@@ -216,7 +216,7 @@ def migrate(registry, dry_run=True, auto_yes=False):
         print(f"\n⚠️ {len(conflicts)} 项目标已存在，迁移时会跳过；请先处理冲突。")
 
     if dry_run:
-        print("\n🔍 [Dry-run] 未写入任何文件。运行 'appman migrate --apply' 执行。\n")
+        print("\n🔍 [Dry-run] 未写入任何文件。运行 'appship migrate --apply' 执行。\n")
         return 0
     if not confirm("\n❓ 执行以上迁移?", default=False, auto_yes=auto_yes):
         print("❌ 已取消。")
@@ -235,7 +235,15 @@ def migrate(registry, dry_run=True, auto_yes=False):
         old, new = action["old"], action["new"]
         try:
             if kind == "plugin":
-                shutil.copy2(old, new)
+                with open(old, "r", encoding="utf-8") as fh:
+                    plugin_text = fh.read()
+                plugin_text = plugin_text.replace("from appman.api", "from appship.api")
+                plugin_text = plugin_text.replace("from appman.", "from appship.")
+                plugin_text = plugin_text.replace("import appman", "import appship")
+                plugin_text = plugin_text.replace("AppManError", "AppShipError")
+                with open(new, "w", encoding="utf-8") as fh:
+                    fh.write(plugin_text)
+                shutil.copystat(old, new)
             elif kind in ("app_dir", "deb_dir"):
                 os.makedirs(os.path.dirname(new), exist_ok=True)
                 shutil.move(old, new)

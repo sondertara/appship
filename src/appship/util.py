@@ -21,7 +21,7 @@ except ImportError:  # pragma: no cover - packaging is optional
 from .config import FOREIGN_ARCH_RE, HOST_ARCH_RE
 
 
-class AppManError(RuntimeError):
+class AppShipError(RuntimeError):
     """Expected failure with a user-facing message."""
 
 
@@ -220,8 +220,8 @@ def _github_token():
 def http_request(url, headers=None, timeout=20, limit=None, method="GET"):
     """HTTPS request. Returns (status, body_bytes, response_headers). 204/304/404 do not raise."""
     if not isinstance(url, str) or not url.startswith("https://"):
-        raise AppManError(f"不是 https 地址: {url}")
-    hdrs = {"User-Agent": "appman"}
+        raise AppShipError(f"不是 https 地址: {url}")
+    hdrs = {"User-Agent": "appship"}
     host = urllib.parse.urlparse(url).hostname or ""
     if host == "api.github.com" and _github_token():
         hdrs["Authorization"] = f"Bearer {_github_token()}"
@@ -231,19 +231,19 @@ def http_request(url, headers=None, timeout=20, limit=None, method="GET"):
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             if not resp.geturl().startswith("https://"):
-                raise AppManError("请求被重定向到非 https 地址")
+                raise AppShipError("请求被重定向到非 https 地址")
             body = b"" if method == "HEAD" else (resp.read(limit) if limit else resp.read())
             return getattr(resp, "status", 200), body, dict(resp.headers.items())
     except urllib.error.HTTPError as exc:
         if exc.code in (204, 304, 404):
             return exc.code, b"", dict(exc.headers.items()) if exc.headers else {}
         if exc.code == 403 and host == "api.github.com":
-            raise AppManError("GitHub API 被限流（可设置 GITHUB_TOKEN 环境变量）") from exc
-        raise AppManError(f"HTTP {exc.code}: {url}") from exc
+            raise AppShipError("GitHub API 被限流（可设置 GITHUB_TOKEN 环境变量）") from exc
+        raise AppShipError(f"HTTP {exc.code}: {url}") from exc
     except urllib.error.URLError as exc:
-        raise AppManError(f"网络请求失败: {exc.reason}") from exc
+        raise AppShipError(f"网络请求失败: {exc.reason}") from exc
     except TimeoutError as exc:
-        raise AppManError("网络请求超时") from exc
+        raise AppShipError("网络请求超时") from exc
 
 
 def http_json(url, headers=None, timeout=20):
@@ -257,7 +257,7 @@ def http_json(url, headers=None, timeout=20):
     try:
         return status, json.loads(body.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise AppManError(f"返回的不是 JSON: {url}") from exc
+        raise AppShipError(f"返回的不是 JSON: {url}") from exc
 
 
 def http_head(url, timeout=20):
@@ -297,7 +297,7 @@ def file_digest(path, algo="sha256"):
 def download(url, dest_dir, filename=None, checksums=None):
     """Download `url` into dest_dir via a .part file, verifying any {'sha256'|'sha512'|'md5': value}."""
     if not isinstance(url, str) or not url.startswith("https://"):
-        raise AppManError("下载地址不是 https")
+        raise AppShipError("下载地址不是 https")
     name = filename or os.path.basename(urllib.parse.unquote(urllib.parse.urlparse(url).path)) or "download"
     name = re.sub(r"[^\w.+\-]", "_", name)
     os.makedirs(dest_dir, exist_ok=True)
@@ -308,11 +308,11 @@ def download(url, dest_dir, filename=None, checksums=None):
     wanted = {a: v for a, v in wanted.items() if v}
     hashers = {a: hashlib.new(a) for a in wanted}
 
-    req = urllib.request.Request(url, headers={"User-Agent": "appman"})
+    req = urllib.request.Request(url, headers={"User-Agent": "appship"})
     try:
         with urllib.request.urlopen(req, timeout=60) as resp, open(part, "wb") as out:
             if not resp.geturl().startswith("https://"):
-                raise AppManError("下载被重定向到非 https 地址")
+                raise AppShipError("下载被重定向到非 https 地址")
             total = int(resp.headers.get("Content-Length") or 0)
             done, last_pct = 0, -1
             tty = sys.stdout.isatty()
@@ -335,10 +335,10 @@ def download(url, dest_dir, filename=None, checksums=None):
         for algo, expect in wanted.items():
             got = hashers[algo].hexdigest()
             if got != expect:
-                raise AppManError(f"{algo} 校验失败 (期望 {expect[:16]}…, 实际 {got[:16]}…)")
+                raise AppShipError(f"{algo} 校验失败 (期望 {expect[:16]}…, 实际 {got[:16]}…)")
     except urllib.error.URLError as exc:
         _remove_quietly(part)
-        raise AppManError(f"下载失败: {getattr(exc, 'reason', exc)}") from exc
+        raise AppShipError(f"下载失败: {getattr(exc, 'reason', exc)}") from exc
     except BaseException:
         _remove_quietly(part)
         raise

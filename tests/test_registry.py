@@ -1,4 +1,4 @@
-from appman.registry import AppRegistry, sanitize_id
+from appship.registry import AppRegistry, sanitize_id
 
 
 def test_registry_round_trip(tmp_path):

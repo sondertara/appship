@@ -1,4 +1,4 @@
-from appman.util import clean_version, compare_versions, version_from_filename, version_from_tag
+from appship.util import clean_version, compare_versions, version_from_filename, version_from_tag
 
 
 def test_compare_versions_basic():

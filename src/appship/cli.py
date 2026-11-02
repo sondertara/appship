@@ -29,24 +29,24 @@ from .migrate import migrate
 from .plugins import PluginManager
 from .registry import AppRegistry
 from .repair import repair
-from .util import AppManError, format_size, http_head
+from .util import AppShipError, format_size, http_head
 
 EPILOG = f"""示例:
-  appman install Foo.AppImage
-  appman scan ~/Downloads
-  appman list
-  appman check
-  appman upgrade antigravity
-  appman uninstall antigravity
-  appman rollback antigravity
-  appman history antigravity
-  appman repair
-  appman set-source antigravity github:owner/repo
-  appman adopt codebuddy-cn --plugin codebuddy
-  appman plugins
-  appman doctor
-  appman migrate --dry-run
-  appman migrate --apply
+  appship install Foo.AppImage
+  appship scan ~/Downloads
+  appship list
+  appship check
+  appship upgrade antigravity
+  appship uninstall antigravity
+  appship rollback antigravity
+  appship history antigravity
+  appship repair
+  appship set-source antigravity github:owner/repo
+  appship adopt codebuddy-cn --plugin codebuddy
+  appship plugins
+  appship doctor
+  appship migrate --dry-run
+  appship migrate --apply
 
 目录:
   应用:      {LOCAL_DIR}
@@ -60,7 +60,7 @@ class ArgParser(argparse.ArgumentParser):
         if "unrecognized arguments" in message:
             sys.stderr.write(f"\n❌ 命令参数错误: {message}\n")
             if "-u" in message or "-U" in message:
-                sys.stderr.write("💡 卸载用 'appman uninstall APP'，升级用 'appman upgrade [APP]'。\n")
+                sys.stderr.write("💡 卸载用 'appship uninstall APP'，升级用 'appship upgrade [APP]'。\n")
             sys.stderr.write("💡 名称含空格请用引号包裹，或直接使用无空格的应用 ID。\n\n")
             sys.exit(2)
         super().error(message)
@@ -112,7 +112,7 @@ def scan_dir(directory, include_deb=True):
 def set_source(registry, query, spec):
     app = registry.find(query)
     if not app:
-        raise AppManError(f"未找到应用: {query}")
+        raise AppShipError(f"未找到应用: {query}")
     spec = spec.strip()
     if spec == "auto":
         registry.db[app.id].pop("update_source", None)
@@ -127,7 +127,7 @@ def set_source(registry, query, spec):
     elif m:
         src = {"type": "github", "repo": m.group(1), "via": "手动指定"}
     else:
-        raise AppManError("来源格式: github:owner/repo | https://github.com/owner/repo | zsync:URL | auto")
+        raise AppShipError("来源格式: github:owner/repo | https://github.com/owner/repo | zsync:URL | auto")
     registry.update(app.id, update_source=src, source_pinned=True, source_sig="")
     print(f"✅ {app.name}: 更新来源已设为 {src}")
 
@@ -177,9 +177,9 @@ def cmd_install(args, ctx):
     for raw in args.files:
         path = os.path.abspath(os.path.expanduser(raw))
         if not os.path.isfile(path):
-            raise AppManError(f"找不到文件: {path}")
+            raise AppShipError(f"找不到文件: {path}")
         if not file_kind(path):
-            raise AppManError(f"只支持 .AppImage 和 .deb: {path}")
+            raise AppShipError(f"只支持 .AppImage 和 .deb: {path}")
         targets.append(path)
     if any(file_kind(t) == "appimage" for t in targets) and not appimage.have_7z():
         print("⚠️  未检测到 7z 命令，AppImage 图标与元数据解析将受限 (sudo pacman -S 7zip)", file=sys.stderr)
@@ -190,7 +190,7 @@ def cmd_install(args, ctx):
 def cmd_scan(args, ctx):
     directory = os.path.abspath(os.path.expanduser(args.dir or DOWNLOADS_DIR))
     if not os.path.isdir(directory):
-        raise AppManError(f"目录不存在: {directory}")
+        raise AppShipError(f"目录不存在: {directory}")
     targets = scan_dir(directory)
     if not targets:
         print(f"🔍 在 {directory} 未发现 AppImage / deb 文件。")
@@ -336,12 +336,12 @@ def cmd_doctor(args, ctx):
     def add(name, status, detail):
         checks.append({"name": name, "status": status, "detail": detail})
 
-    add("appman", "ok", __version__)
+    add("appship", "ok", __version__)
     add("python", "ok", platform.python_version())
     add(
         "路径布局",
         "warn" if USE_LEGACY_LAYOUT else "ok",
-        f"{LOCAL_DIR}（legacy，建议 appman migrate）" if USE_LEGACY_LAYOUT else f"{LOCAL_DIR}（XDG）",
+        f"{LOCAL_DIR}（legacy，建议 appship migrate）" if USE_LEGACY_LAYOUT else f"{LOCAL_DIR}（XDG）",
     )
 
     seven = shutil.which("7z")
@@ -416,7 +416,7 @@ def cmd_doctor(args, ctx):
         try:
             headers = http_head("https://github.com", timeout=10)
             add("网络", "ok" if headers else "warn", "https://github.com 可达" if headers else "HEAD 无响应")
-        except AppManError as exc:
+        except AppShipError as exc:
             add("网络", "error", str(exc))
     else:
         add("网络", "skip", "未检查（加 --network）")
@@ -424,13 +424,13 @@ def cmd_doctor(args, ctx):
     if args.json:
         print(
             json.dumps(
-                {"appman": __version__, "python": platform.python_version(), "checks": checks},
+                {"appship": __version__, "python": platform.python_version(), "checks": checks},
                 indent=2,
                 ensure_ascii=False,
             )
         )
     elif not args.quiet:
-        print(f"\n🩺 AppMan {__version__} doctor\n")
+        print(f"\n🩺 AppShip {__version__} doctor\n")
         icons = {"ok": "✅", "warn": "⚠️", "error": "❌", "skip": "⏭️"}
         for check in checks:
             print(f"  {icons[check['status']]} {check['name']}: {check['detail']}")
@@ -456,14 +456,14 @@ def cmd_help(topic, parser):
 # ==============================================================================
 def build_parser():
     p = ArgParser(
-        prog="appman",
-        description=f"AppMan {__version__} - AppImage / deb 统一安装、检测与升级",
+        prog="appship",
+        description=f"AppShip {__version__} - AppImage / deb 统一安装、检测与升级",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=EPILOG,
     )
     p.add_argument("-v", "--verbose", action="store_true", help="显示更多检查细节")
     p.add_argument("--no-color", action="store_true", help="禁用颜色（NO_COLOR）")
-    p.add_argument("--version", action="version", version=f"appman {__version__}")
+    p.add_argument("--version", action="version", version=f"appship {__version__}")
     sub = p.add_subparsers(dest="command", required=True, metavar="COMMAND")
 
     sp = sub.add_parser("install", help="安装一个或多个 AppImage / deb")
@@ -565,7 +565,7 @@ def main(argv=None):
         parser.print_help()
         return 0
     if any(arg in ("-u", "-U") for arg in argv):
-        sys.stderr.write("❌ -u/-U 已移除：卸载用 'appman uninstall APP'，升级用 'appman upgrade [APP]'。\n")
+        sys.stderr.write("❌ -u/-U 已移除：卸载用 'appship uninstall APP'，升级用 'appship upgrade [APP]'。\n")
         return 2
     args = parser.parse_args(argv)
     if getattr(args, "no_color", False):
@@ -573,13 +573,13 @@ def main(argv=None):
     if args.command == "help":
         return cmd_help(args.topic, parser)
     if args.command == "version":
-        print(f"appman {__version__}")
+        print(f"appship {__version__}")
         return 0
 
     ctx = Context()
     try:
         return args.func(args, ctx)
-    except AppManError as exc:
+    except AppShipError as exc:
         print(f"❌ {exc}", file=sys.stderr)
         return 1
     except KeyboardInterrupt:

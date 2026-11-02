@@ -8,7 +8,7 @@ which answers 204 when up to date, or JSON {productVersion, url (.deb), sha256ha
 import re
 import urllib.parse
 
-from appman.api import HOST_ARCH, AppManError, Update, http_json
+from appship.api import HOST_ARCH, AppShipError, Update, http_json
 
 NAME = "codebuddy"
 DESCRIPTION = "CodeBuddy CN IDE（腾讯官方 deb → pacman 包 codebuddy-cn，腾讯更新接口检测版本）"
@@ -68,17 +68,17 @@ def check(app):
     local = app.version
     plat = {"x86_64": "linux-x64", "aarch64": "linux-arm64"}.get(HOST_ARCH)
     if not plat:
-        raise AppManError(f"CodeBuddy 没有 {HOST_ARCH} 版本")
+        raise AppShipError(f"CodeBuddy 没有 {HOST_ARCH} 版本")
     query = urllib.parse.urlencode({"platform": f"ide-{plat}", "version": local if local != "unknown" else "0.0.0"})
     status, data = http_json(f"{_FEED}?{query}")
     if status == 204 or data is None:
         return Update("current", local=local, remote=local, source="CodeBuddy 更新接口")
     if not isinstance(data, dict) or data.get("code"):
-        raise AppManError(f"CodeBuddy 更新接口返回错误: {data.get('msg') if isinstance(data, dict) else data}")
+        raise AppShipError(f"CodeBuddy 更新接口返回错误: {data.get('msg') if isinstance(data, dict) else data}")
     remote = str(data.get("productVersion") or data.get("version") or "").strip()
     url = str(data.get("url") or "")
     if not remote:
-        raise AppManError("CodeBuddy 更新接口没有返回版本号")
+        raise AppShipError("CodeBuddy 更新接口没有返回版本号")
     if not (url.startswith("https://") and url.lower().endswith(".deb")):
         url = ""
     return Update.compare(

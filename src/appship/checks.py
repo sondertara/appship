@@ -20,7 +20,7 @@ from concurrent.futures import ThreadPoolExecutor
 from . import appimage
 from .config import PLUGINS_DIR
 from .util import (
-    AppManError,
+    AppShipError,
     clean_version,
     compare_versions,
     http_json,
@@ -96,7 +96,7 @@ def github_release(repo, local, ext=".AppImage", hint="", allow_prerelease=None,
         f"https://api.github.com/repos/{repo}/releases?per_page=40", headers={"Accept": "application/vnd.github+json"}
     )
     if status == 404 or not isinstance(releases, list):
-        raise AppManError(f"GitHub 上找不到仓库 {repo} 的 Release")
+        raise AppShipError(f"GitHub 上找不到仓库 {repo} 的 Release")
     if allow_prerelease is None:
         allow_prerelease = is_prerelease_version(local)
 
@@ -118,7 +118,7 @@ def github_release(repo, local, ext=".AppImage", hint="", allow_prerelease=None,
 
     found = candidates(allow_prerelease) or candidates(True)
     if not found:
-        raise AppManError(f"{repo} 的 Release 中没有适用于本机的 {ext} 文件")
+        raise AppShipError(f"{repo} 的 Release 中没有适用于本机的 {ext} 文件")
     best = found[0]
     for item in found[1:]:
         if compare_versions(item[0], best[0]) > 0:
@@ -150,7 +150,7 @@ def _electron_yml_checksum(assets, filename):
         ):
             try:
                 _, body, _ = http_request(a["browser_download_url"], limit=65536)
-            except AppManError:
+            except AppShipError:
                 continue
             files = _parse_builder_yml(body.decode("utf-8", "replace"))
             if filename in files.get("files", {}):
@@ -190,7 +190,7 @@ def electron_generic(base_url, local, channel="latest"):
     version = clean_version(info.get("version"))
     path = info.get("path") or next((f for f in info["files"] if f.lower().endswith(".appimage")), "")
     if version == "unknown" or not path:
-        raise AppManError("electron 更新文件中没有版本信息")
+        raise AppShipError("electron 更新文件中没有版本信息")
     url = urllib.parse.urljoin(base, path)
     sha = info["files"].get(path) or info.get("sha512", "")
     return Update.compare(
@@ -218,7 +218,7 @@ def zsync_source(url, local):
     if version == "unknown":
         version = version_from_filename(file_url)
     if version == "unknown":
-        raise AppManError("zsync 文件名里没有版本号")
+        raise AppShipError("zsync 文件名里没有版本号")
     download = urllib.parse.urljoin(url, file_url) if file_url else (url[:-6] if url.lower().endswith(".zsync") else "")
     return Update.compare(
         local,
@@ -246,7 +246,7 @@ def resolve_source(src, app):
         return electron_generic(src["url"], local, src.get("channel", "latest"))
     if t == "none":
         return Update.none(src.get("detail", "未找到更新来源"), local=local)
-    raise AppManError(f"未知的更新来源类型: {t}")
+    raise AppShipError(f"未知的更新来源类型: {t}")
 
 
 # ==============================================================================
@@ -359,7 +359,7 @@ class UpdateChecker:
         if plugin and hasattr(plugin.module, "check"):
             try:
                 res = plugin.module.check(app)
-            except AppManError as exc:
+            except AppShipError as exc:
                 return Update.error(str(exc), local=app.version, source=f"插件 {plugin.name}"), None
             except Exception as exc:  # plugin bug: report, don't crash the run
                 return Update.error(f"插件 {plugin.name} 出错: {exc!r}", local=app.version), None
@@ -384,7 +384,7 @@ class UpdateChecker:
             cache = {"update_source": src, "source_sig": sig}
         try:
             res = resolve_source(src, app)
-        except AppManError as exc:
+        except AppShipError as exc:
             res = Update.error(str(exc), local=app.version)
             if not app.data.get("source_pinned"):
                 cache = {"update_source": src, "source_sig": ""}  # retry discovery next time
@@ -437,7 +437,7 @@ class UpdateChecker:
                 print(f"  {app.name}  {res.local} → {res.remote}")
                 if res.download_url:
                     print(f"    {res.download_url}")
-            print("\n💡 运行 'appman upgrade' 自动下载并升级（或 'appman upgrade <App ID>' 只升级一个）。")
+            print("\n💡 运行 'appship upgrade' 自动下载并升级（或 'appship upgrade <App ID>' 只升级一个）。")
         if problems and (verbose or any(r.status == "error" for _, r in problems)):
             print("\nℹ️  说明:")
             for app, res in problems:
@@ -445,7 +445,7 @@ class UpdateChecker:
                     print(f"  • {app.name}: {res.detail}")
         if any(r.status == "none" for _, r in rows):
             print(
-                f"\n💡 无更新来源的应用可写插件 ({PLUGINS_DIR}/) 或用 'appman set-source <App ID> github:owner/repo' 指定。"
+                f"\n💡 无更新来源的应用可写插件 ({PLUGINS_DIR}/) 或用 'appship set-source <App ID> github:owner/repo' 指定。"
             )
         print()
         return rows

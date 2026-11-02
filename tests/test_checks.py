@@ -1,7 +1,7 @@
 import pytest
 
-from appman import checks
-from appman.util import AppManError
+from appship import checks
+from appship.util import AppShipError
 
 
 def test_electron_generic_uses_arch_channel(monkeypatch):
@@ -33,5 +33,5 @@ def test_electron_generic_uses_arch_channel(monkeypatch):
 
 def test_electron_generic_rejects_empty_manifest(monkeypatch):
     monkeypatch.setattr(checks, "http_request", lambda *a, **k: (404, b"", {}))
-    with pytest.raises(AppManError):
+    with pytest.raises(AppShipError):
         checks.electron_generic("https://example.test/manifest/", "1.1.0")

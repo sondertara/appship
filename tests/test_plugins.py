@@ -1,4 +1,4 @@
-from appman.plugins import PluginManager
+from appship.plugins import PluginManager
 
 
 def test_builtin_plugins_load(tmp_path):
@@ -20,3 +20,16 @@ def test_user_plugin_overrides_builtin(tmp_path):
     assert len(matches) == 1
     assert matches[0].source == "user"
     assert matches[0].description == "local override"
+
+
+def test_legacy_plugin_import_alias(tmp_path):
+    (tmp_path / "legacy.py").write_text(
+        "from appman.api import AppManError\n"
+        "NAME = 'legacy'\n"
+        "DESCRIPTION = 'legacy import compatibility'\n"
+        "def match(app):\n"
+        "    return False\n"
+    )
+    manager = PluginManager(plugins_dirs=[str(tmp_path)])
+    assert manager.get("legacy") is not None
+    assert not manager.errors

@@ -1,17 +1,17 @@
 #!/bin/sh
-# Install appman from a GitHub release as a standalone zipapp.
+# Install appship from a GitHub release as a standalone zipapp.
 # Per-user, no sudo, keeps user data, verifies SHA256 when downloading.
 set -eu
 umask 022
 
-REPO="${APPMAN_REPO:-sondertara/appman}"
-VERSION="${APPMAN_VERSION:-latest}"
-PREFIX="${APPMAN_PREFIX:-$HOME/.local}"
+REPO="${APPSHIP_REPO:-sondertara/appship}"
+VERSION="${APPSHIP_VERSION:-latest}"
+PREFIX="${APPSHIP_PREFIX:-$HOME/.local}"
 PYTHON="${PYTHON:-python3}"
-LOCAL_PYZ="${APPMAN_PYZ:-}"
-EXPECTED_SHA="${APPMAN_SHA256:-}"
+LOCAL_PYZ="${APPSHIP_PYZ:-}"
+EXPECTED_SHA="${APPSHIP_SHA256:-}"
 
-DATA_ROOT="${XDG_DATA_HOME:-$HOME/.local/share}/appman"
+DATA_ROOT="${XDG_DATA_HOME:-$HOME/.local/share}/appship"
 VERSIONS_DIR="$DATA_ROOT/versions"
 BIN_DIR="$PREFIX/bin"
 
@@ -20,15 +20,15 @@ usage() {
 Usage: install.sh [--prefix DIR] [--version VERSION] [--uninstall]
 
 Environment:
-  APPMAN_REPO     GitHub owner/repo (default: $REPO)
-  APPMAN_VERSION  release version (default: latest)
-  APPMAN_PREFIX   install prefix for the command (default: ~/.local)
-  APPMAN_PYZ      use a local appman.pyz (offline install)
-  APPMAN_SHA256   expected SHA256 for a local/remote appman.pyz
-  APPMAN_BASE_URL mirror/testing base containing appman.pyz + SHA256SUMS
+  APPSHIP_REPO     GitHub owner/repo (default: $REPO)
+  APPSHIP_VERSION  release version (default: latest)
+  APPSHIP_PREFIX   install prefix for the command (default: ~/.local)
+  APPSHIP_PYZ      use a local appship.pyz (offline install)
+  APPSHIP_SHA256   expected SHA256 for a local/remote appship.pyz
+  APPSHIP_BASE_URL mirror/testing base containing appship.pyz + SHA256SUMS
   PYTHON          Python >= 3.11 interpreter (default: python3)
 
-Code is installed under $VERSIONS_DIR/<version>/ and linked from $BIN_DIR/appman.
+Code is installed under $VERSIONS_DIR/<version>/ and linked from $BIN_DIR/appship.
 User apps, registry, plugins, config, and cache are never removed by --uninstall.
 EOF
 }
@@ -60,22 +60,22 @@ sha256() {
     fi
 }
 
-uninstall_appman() {
-    if [ -L "$BIN_DIR/appman" ]; then
-        target=$(readlink "$BIN_DIR/appman" 2>/dev/null || true)
+uninstall_appship() {
+    if [ -L "$BIN_DIR/appship" ]; then
+        target=$(readlink "$BIN_DIR/appship" 2>/dev/null || true)
         case "$target" in
             "$VERSIONS_DIR"/*)
-                rm -f "$BIN_DIR/appman"
+                rm -f "$BIN_DIR/appship"
                 ;;
             *)
-                die "$BIN_DIR/appman 指向未知位置，未删除: $target"
+                die "$BIN_DIR/appship 指向未知位置，未删除: $target"
                 ;;
         esac
-    elif [ -e "$BIN_DIR/appman" ]; then
-        die "$BIN_DIR/appman 不是 appman 安装器创建的软链，未删除"
+    elif [ -e "$BIN_DIR/appship" ]; then
+        die "$BIN_DIR/appship 不是 appship 安装器创建的软链，未删除"
     fi
     rm -rf "$VERSIONS_DIR"
-    echo "✅ 已移除 appman 代码。用户应用、注册表、插件、配置和缓存保留。"
+    echo "✅ 已移除 appship 代码。用户应用、注册表、插件、配置和缓存保留。"
 }
 
 UNINSTALL=0
@@ -109,7 +109,7 @@ done
 BIN_DIR="$PREFIX/bin"
 
 if [ "$UNINSTALL" -eq 1 ]; then
-    uninstall_appman
+    uninstall_appship
     exit 0
 fi
 
@@ -117,60 +117,60 @@ command -v "$PYTHON" >/dev/null 2>&1 || die "找不到 Python: $PYTHON"
 "$PYTHON" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)' \
     || die "需要 Python >= 3.11"
 
-tmp=$(mktemp -d "${TMPDIR:-/tmp}/appman-install.XXXXXX")
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/appship-install.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT INT TERM
 
 if [ -n "$LOCAL_PYZ" ]; then
-    [ -f "$LOCAL_PYZ" ] || die "找不到 APPMAN_PYZ: $LOCAL_PYZ"
-    cp "$LOCAL_PYZ" "$tmp/appman.pyz"
+    [ -f "$LOCAL_PYZ" ] || die "找不到 APPSHIP_PYZ: $LOCAL_PYZ"
+    cp "$LOCAL_PYZ" "$tmp/appship.pyz"
 else
-    if [ -n "${APPMAN_BASE_URL:-}" ]; then
-        base="${APPMAN_BASE_URL%/}"
+    if [ -n "${APPSHIP_BASE_URL:-}" ]; then
+        base="${APPSHIP_BASE_URL%/}"
     elif [ "$VERSION" = "latest" ]; then
         base="https://github.com/$REPO/releases/latest/download"
     else
         tag="v${VERSION#v}"
         base="https://github.com/$REPO/releases/download/$tag"
     fi
-    echo "⬇ 下载 appman ($VERSION) from $REPO"
-    fetch "$base/appman.pyz" "$tmp/appman.pyz"
+    echo "⬇ 下载 appship ($VERSION) from $REPO"
+    fetch "$base/appship.pyz" "$tmp/appship.pyz"
     fetch "$base/SHA256SUMS" "$tmp/SHA256SUMS"
-    expected=$(awk '$2 == "appman.pyz" {print $1; exit}' "$tmp/SHA256SUMS")
-    [ -n "$expected" ] || die "SHA256SUMS 中没有 appman.pyz"
-    [ "$expected" = "$(sha256 "$tmp/appman.pyz")" ] || die "appman.pyz SHA256 校验失败"
+    expected=$(awk '$2 == "appship.pyz" {print $1; exit}' "$tmp/SHA256SUMS")
+    [ -n "$expected" ] || die "SHA256SUMS 中没有 appship.pyz"
+    [ "$expected" = "$(sha256 "$tmp/appship.pyz")" ] || die "appship.pyz SHA256 校验失败"
     echo "🔐 SHA256 校验通过"
 fi
 
 if [ -n "$EXPECTED_SHA" ]; then
-    [ "$EXPECTED_SHA" = "$(sha256 "$tmp/appman.pyz")" ] || die "APPMAN_SHA256 校验失败"
-    echo "🔐 APPMAN_SHA256 校验通过"
+    [ "$EXPECTED_SHA" = "$(sha256 "$tmp/appship.pyz")" ] || die "APPSHIP_SHA256 校验失败"
+    echo "🔐 APPSHIP_SHA256 校验通过"
 elif [ -z "$LOCAL_PYZ" ]; then
     : # already verified against SHA256SUMS
 else
-    echo "⚠️ 本地 APPMAN_PYZ 未校验；如需校验请设置 APPMAN_SHA256"
+    echo "⚠️ 本地 APPSHIP_PYZ 未校验；如需校验请设置 APPSHIP_SHA256"
 fi
 
-ver=$("$PYTHON" "$tmp/appman.pyz" --version | awk '{print $2}')
-[ -n "$ver" ] || die "无法读取 appman 版本"
+ver=$("$PYTHON" "$tmp/appship.pyz" --version | awk '{print $2}')
+[ -n "$ver" ] || die "无法读取 appship 版本"
 [ "$ver" != "latest" ] || die "无效版本: $ver"
 
 mkdir -p "$VERSIONS_DIR/$ver" "$BIN_DIR"
 [ -w "$BIN_DIR" ] || die "$BIN_DIR 不可写"
 
-if [ -e "$BIN_DIR/appman" ] && [ ! -L "$BIN_DIR/appman" ]; then
-    backup="$BIN_DIR/appman.bak-$(date +%Y%m%d%H%M%S)"
-    mv "$BIN_DIR/appman" "$backup"
+if [ -e "$BIN_DIR/appship" ] && [ ! -L "$BIN_DIR/appship" ]; then
+    backup="$BIN_DIR/appship.bak-$(date +%Y%m%d%H%M%S)"
+    mv "$BIN_DIR/appship" "$backup"
     echo "🛡️ 已备份旧入口: $backup"
 fi
 
-install -m 0755 "$tmp/appman.pyz" "$VERSIONS_DIR/$ver/appman.pyz" 2>/dev/null \
-    || { cp "$tmp/appman.pyz" "$VERSIONS_DIR/$ver/appman.pyz"; chmod 0755 "$VERSIONS_DIR/$ver/appman.pyz"; }
+install -m 0755 "$tmp/appship.pyz" "$VERSIONS_DIR/$ver/appship.pyz" 2>/dev/null \
+    || { cp "$tmp/appship.pyz" "$VERSIONS_DIR/$ver/appship.pyz"; chmod 0755 "$VERSIONS_DIR/$ver/appship.pyz"; }
 ln -sfn "$ver" "$VERSIONS_DIR/current"
-ln -sfn "$VERSIONS_DIR/current/appman.pyz" "$BIN_DIR/appman"
+ln -sfn "$VERSIONS_DIR/current/appship.pyz" "$BIN_DIR/appship"
 
-echo "✅ appman $ver 已安装: $BIN_DIR/appman"
+echo "✅ appship $ver 已安装: $BIN_DIR/appship"
 case ":$PATH:" in
     *":$BIN_DIR:"*) ;;
     *) echo "💡 请把 $BIN_DIR 加入 PATH" ;;
 esac
-echo "💡 运行 'appman doctor' 检查环境；旧 ~/local 布局可用 'appman migrate --dry-run'。"
+echo "💡 运行 'appship doctor' 检查环境；旧 ~/local 布局可用 'appship migrate --dry-run'。"

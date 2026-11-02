@@ -2,7 +2,7 @@ import glob
 import os
 from types import SimpleNamespace
 
-import appman.migrate as migrate_mod
+import appship.migrate as migrate_mod
 
 
 class FakeRegistry:
@@ -41,7 +41,7 @@ def _setup(tmp_path, monkeypatch):
 
     legacy_db = legacy / ".apps.json"
     legacy_db.write_text("{}")
-    target = tmp_path / "share" / "appman"
+    target = tmp_path / "share" / "appship"
     target_apps = target / "apps"
     target_db = target / "apps.json"
     target_plugins = target / "plugins"

@@ -18,12 +18,12 @@ jobs:
       - run: uv run pytest
       - run: ./scripts/build.sh
       - run: cp scripts/install.sh dist/install.sh
-      - run: cd dist && sha256sum appman.pyz ./*.whl ./*.tar.gz install.sh > SHA256SUMS
+      - run: cd dist && sha256sum appship.pyz ./*.whl ./*.tar.gz install.sh > SHA256SUMS
       - uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/appman.pyz
-            dist/appman_cli-*.whl
-            dist/appman_cli-*.tar.gz
+            dist/appship.pyz
+            dist/appship-*.whl
+            dist/appship-*.tar.gz
             dist/install.sh
             dist/SHA256SUMS

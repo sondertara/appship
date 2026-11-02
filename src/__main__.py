@@ -1,6 +1,6 @@
 import sys
 
-from appman.cli import main
+from appship.cli import main
 
 if __name__ == "__main__":
     sys.exit(main())

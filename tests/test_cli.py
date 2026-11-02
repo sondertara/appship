@@ -1,4 +1,4 @@
-from appman.cli import build_parser, main
+from appship.cli import build_parser, main
 
 
 def test_parser_subcommands():
@@ -16,7 +16,7 @@ def test_parser_subcommands():
 
 def test_version_command(capsys):
     assert main(["version"]) == 0
-    assert capsys.readouterr().out.strip().startswith("appman ")
+    assert capsys.readouterr().out.strip().startswith("appship ")
 
 
 def test_no_args_prints_help(capsys):

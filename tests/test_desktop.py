@@ -1,4 +1,4 @@
-from appman.desktop import write_desktop_entry
+from appship.desktop import write_desktop_entry
 
 
 def test_wayland_electron_uses_text_input_v3(tmp_path, monkeypatch):

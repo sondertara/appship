@@ -9,7 +9,7 @@ REPO = Path(__file__).resolve().parents[1]
 def _config_env(tmp_path):
     env = os.environ.copy()
     for key in list(env):
-        if key.startswith("APPMAN_"):
+        if key.startswith("APPSHIP_"):
             env.pop(key)
     env.update(
         {
@@ -26,7 +26,7 @@ def _config_env(tmp_path):
 
 def _read_config(env):
     code = (
-        "from appman import config\n"
+        "from appship import config\n"
         "print(int(config.USE_LEGACY_LAYOUT))\n"
         "print(config.LOCAL_DIR)\n"
         "print(config.VERSIONS_DB_PATH)\n"
@@ -46,8 +46,8 @@ def test_xdg_is_default(tmp_path):
     env = _config_env(tmp_path)
     legacy, local_dir, db_path = _read_config(env)
     assert legacy is False
-    assert local_dir == str(tmp_path / "share" / "appman" / "apps")
-    assert db_path == str(tmp_path / "share" / "appman" / "apps.json")
+    assert local_dir == str(tmp_path / "share" / "appship" / "apps")
+    assert db_path == str(tmp_path / "share" / "appship" / "apps.json")
 
 
 def test_legacy_is_detected(tmp_path):
@@ -64,7 +64,7 @@ def test_target_registry_wins_over_legacy(tmp_path):
     env = _config_env(tmp_path)
     (tmp_path / "local").mkdir()
     (tmp_path / "local" / ".apps.json").write_text("{}")
-    target = tmp_path / "share" / "appman"
+    target = tmp_path / "share" / "appship"
     target.mkdir(parents=True)
     (target / "apps.json").write_text("{}")
     legacy, _local_dir, db_path = _read_config(env)

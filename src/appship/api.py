@@ -4,7 +4,7 @@ from .checks import Update, electron_generic, github_release, zsync_source
 from .config import DEB_DIR, HOME, HOST_ARCH, LOCAL_DIR
 from .registry import App, pacman_to_upstream_version
 from .util import (
-    AppManError,
+    AppShipError,
     clean_version,
     compare_versions,
     http_head,
@@ -14,9 +14,13 @@ from .util import (
     version_from_tag,
 )
 
+# Legacy plugins imported AppManError; keep the alias for the migration cycle.
+AppManError = AppShipError
+
 __all__ = [
     "App",
     "AppManError",
+    "AppShipError",
     "DEB_DIR",
     "HOME",
     "HOST_ARCH",

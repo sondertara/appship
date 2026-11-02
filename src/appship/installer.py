@@ -9,7 +9,7 @@ from functools import cmp_to_key
 from . import appimage, debpkg, desktop
 from .config import APPLICATIONS_DIR, DEB_DIR, DOWNLOAD_CACHE, ICONS_DIR, LOCAL_DIR
 from .registry import now_str, pacman_installed_versions, pacman_to_upstream_version, sanitize_folder_name, sanitize_id
-from .util import AppManError, compare_versions, confirm, download, format_size, path_size
+from .util import AppShipError, compare_versions, confirm, download, format_size, path_size
 
 
 def file_kind(path):
@@ -119,7 +119,7 @@ class Installer:
                     self.install_deb(path, plugin=plugin, dry_run=dry_run, auto_yes=auto_yes, consume=True)
                 else:
                     self.install_appimage(path, meta, dry_run=dry_run)
-            except AppManError as e:
+            except AppShipError as e:
                 print(f"❌ 安装 {os.path.basename(path)} 失败: {e}")
             except Exception as e:
                 print(f"❌ 安装 {os.path.basename(path)} 时出错: {e!r}")
@@ -192,7 +192,7 @@ class Installer:
         )
         desktop.refresh_desktop()
         print(f"   ✅ 安装就绪! 菜单快捷方式: {desktop_file}")
-        desktop.notify("AppMan", f"🎉 {meta['app_name']} 已就绪 (v{meta['version']})", icon=icon or app_id)
+        desktop.notify("AppShip", f"🎉 {meta['app_name']} 已就绪 (v{meta['version']})", icon=icon or app_id)
 
     # ==================================================================
     # .deb (repackaged as a local pacman package)
@@ -228,7 +228,7 @@ class Installer:
         pkgfile = info["package_file"]
         print(f"   📦 已生成: {os.path.basename(pkgfile)}")
         if not debpkg.pacman_install(pkgfile, auto_yes=auto_yes):
-            raise AppManError("pacman 安装未完成（已取消或失败），包文件保留在构建目录中")
+            raise AppShipError("pacman 安装未完成（已取消或失败），包文件保留在构建目录中")
 
         app_id = existing.id if existing else sanitize_id(pkgname)
         self.registry.register(
@@ -253,7 +253,7 @@ class Installer:
                 pass
         desktop.refresh_desktop()
         print(f"   ✅ {app_name} {pkgver} 已通过 pacman 安装")
-        desktop.notify("AppMan", f"🎉 {app_name} 已就绪 (v{pkgver})", icon=pkgname)
+        desktop.notify("AppShip", f"🎉 {app_name} 已就绪 (v{pkgver})", icon=pkgname)
 
     # ==================================================================
     # Upgrade (check + download + install)
@@ -281,7 +281,7 @@ class Installer:
             print(f"  • {app.name}: {res.local} → {res.remote}  ({res.source})")
         no_url = [(a, r) for a, r in pending if not r.download_url]
         for app, _ in no_url:
-            print(f"  ⚠️ {app.name}: 上游未提供可直接下载的地址，请手动下载后用 'appman install FILE' 安装")
+            print(f"  ⚠️ {app.name}: 上游未提供可直接下载的地址，请手动下载后用 'appship install FILE' 安装")
         pending = [(a, r) for a, r in pending if r.download_url]
         if dry_run or not pending:
             if dry_run:
@@ -298,7 +298,7 @@ class Installer:
                 path = download(
                     res.download_url, DOWNLOAD_CACHE, filename=res.filename or None, checksums=res.checksums
                 )
-            except AppManError as e:
+            except AppShipError as e:
                 print(f"   ❌ {e}")
                 continue
             try:
@@ -316,7 +316,7 @@ class Installer:
                     meta["app_name"] = app.name  # keep the registered identity across upgrades
                     meta["filename"] = res.filename or os.path.basename(path)
                     self.install_appimage(path, meta)
-            except AppManError as e:
+            except AppShipError as e:
                 print(f"   ❌ 安装失败: {e}")
             except Exception as e:
                 print(f"   ❌ 安装时出错: {e!r}")
@@ -328,7 +328,7 @@ class Installer:
     def rollback(self, query, auto_yes=False, dry_run=False):
         app = self.registry.find(query)
         if not app:
-            print(f"❌ 未找到已注册的应用: '{query}'。请先使用 'appman list' 查看。")
+            print(f"❌ 未找到已注册的应用: '{query}'。请先使用 'appship list' 查看。")
             return
         history = list(app.data.get("history", []))
         # The version we are going back to: the newest history entry that differs from the current one.
@@ -382,7 +382,7 @@ class Installer:
         history.append({"version": prev_version, "date": now_str(), "file": "(rollback)"})
         self.registry.update(app.id, version=prev_version, history=history, **fields)
         desktop.refresh_desktop()
-        print(f"✅ 回滚成功！当前版本: {prev_version}（再执行一次 'appman rollback {app.id}' 可撤销）")
+        print(f"✅ 回滚成功！当前版本: {prev_version}（再执行一次 'appship rollback {app.id}' 可撤销）")
 
     # ==================================================================
     # Uninstall
@@ -450,7 +450,7 @@ class Installer:
         self.registry.unregister(app.id)
         desktop.refresh_desktop()
         print(f"\n🎉 '{app.name}' 已彻底卸载！共释放 {format_size(total)} 磁盘空间。")
-        desktop.notify("AppMan", f"🗑️ {app.name} 已卸载 (释放 {format_size(total)})")
+        desktop.notify("AppShip", f"🗑️ {app.name} 已卸载 (释放 {format_size(total)})")
         return True
 
     def _data_files(self, app, keep_data, *identities):
@@ -523,7 +523,7 @@ class Installer:
             )
         data_files = self._data_files(app, keep_data, app.name, pkg, app.id, d.get("wm_class", ""))
         sections = [
-            ("📦 1. appman 构建目录:", app_files),
+            ("📦 1. appship 构建目录:", app_files),
             ("🗄️  2. 应用工作数据、配置与缓存:" + (" (已指定 --keep-data，跳过)" if keep_data else ""), data_files),
         ]
 
@@ -543,9 +543,9 @@ class Installer:
     def adopt_pkg(self, pkgname, plugin_name=""):
         installed = pacman_installed_versions([pkgname])
         if pkgname not in installed:
-            raise AppManError(f"pacman 中没有安装 {pkgname}")
+            raise AppShipError(f"pacman 中没有安装 {pkgname}")
         if self.registry.find_by_pkg(pkgname):
-            print(f"ℹ️  {pkgname} 已在 appman 中登记。")
+            print(f"ℹ️  {pkgname} 已在 appship 中登记。")
             return
         plugin = self.plugins.get(plugin_name) if plugin_name else None
         version = pacman_to_upstream_version(installed[pkgname])

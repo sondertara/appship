@@ -8,7 +8,7 @@ When the server copy differs, the new version is read from the downloaded AppIma
 
 import os
 
-from appman.api import HOST_ARCH, AppManError, Update, http_head
+from appship.api import HOST_ARCH, AppShipError, Update, http_head
 
 NAME = "wechat"
 DESCRIPTION = "微信 Linux 官方 AppImage（固定下载地址，按服务器 MD5 判断是否有新版）"
@@ -43,13 +43,13 @@ def _local_md5(app):
 def check(app):
     url = _URLS.get(HOST_ARCH)
     if not url:
-        raise AppManError(f"微信没有 {HOST_ARCH} 版本")
+        raise AppShipError(f"微信没有 {HOST_ARCH} 版本")
     if not app.installed:
-        raise AppManError("找不到已安装的 AppImage")
+        raise AppShipError("找不到已安装的 AppImage")
     headers = http_head(url)
     remote_md5 = (headers.get("x-cos-meta-md5") or headers.get("etag", "")).strip('"').lower()
     if len(remote_md5) != 32:
-        raise AppManError("微信下载服务器没有返回 MD5，无法判断版本")
+        raise AppShipError("微信下载服务器没有返回 MD5，无法判断版本")
     local_md5, _ = _local_md5(app)
     src = "微信官方下载 (MD5 比对)"
     if remote_md5 == local_md5:

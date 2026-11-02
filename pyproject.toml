@@ -3,8 +3,8 @@ requires = ["hatchling>=1.25"]
 build-backend = "hatchling.build"
 
 [project]
-name = "appman-cli"
-version = "1.0.0"
+name = "appship"
+version = "0.1.0"
 description = "User-level AppImage / deb application manager with upstream update checks"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -28,22 +28,22 @@ dependencies = []
 versions = ["packaging>=23"]
 
 [project.scripts]
-appman = "appman.cli:main"
+appship = "appship.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/sondertara/appman"
-Repository = "https://github.com/sondertara/appman"
-Issues = "https://github.com/sondertara/appman/issues"
+Homepage = "https://github.com/sondertara/appship"
+Repository = "https://github.com/sondertara/appship"
+Issues = "https://github.com/sondertara/appship/issues"
 
 [dependency-groups]
 dev = ["pytest>=8", "pytest-cov>=5", "ruff>=0.6"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/appman"]
+packages = ["src/appship"]
 
 [tool.hatch.build.targets.sdist]
 include = [
-  "src/appman",
+  "src/appship",
   "tests",
   "scripts",
   "README.md",

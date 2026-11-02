@@ -1,6 +1,6 @@
 """Plugin loader.
 
-Built-in plugins are modules under ``appman.plugins_builtin``. User plugins are
+Built-in plugins are modules under ``appship.plugins_builtin``. User plugins are
 ``*.py`` files in the XDG plugin directory (or the legacy ``~/local/appman.d/plugins``
 directory). User plugins override built-ins by ``NAME``.
 
@@ -19,7 +19,7 @@ Every plugin may implement these optional hooks:
   def deb_package_extra(fields) -> str
   def data_dirs(app) -> list[str]
 
-Plugins should only import from ``appman.api``. They are arbitrary Python code:
+Plugins should only import from ``appship.api``. They are arbitrary Python code:
 only install plugins you trust.
 """
 
@@ -31,6 +31,40 @@ import sys
 
 from . import plugins_builtin
 from .config import LEGACY_PLUGINS_DIR, PLUGINS_DIR, TARGET_PLUGINS_DIR
+
+
+def _install_legacy_aliases():
+    """Let pre-rename plugins keep importing ``appman.api``.
+
+    This is migration compatibility only; new plugins should import
+    ``appship.api``.
+    """
+    import appship
+
+    try:
+        import appship.api  # noqa: F401
+    except Exception:
+        return
+    sys.modules.setdefault("appman", appship)
+    for name in (
+        "api",
+        "appimage",
+        "checks",
+        "config",
+        "debpkg",
+        "desktop",
+        "installer",
+        "migrate",
+        "plugins",
+        "registry",
+        "repair",
+        "util",
+    ):
+        try:
+            module = importlib.import_module(f"appship.{name}")
+        except Exception:
+            continue
+        sys.modules.setdefault(f"appman.{name}", module)
 
 
 class Plugin:
@@ -85,6 +119,7 @@ class PluginManager:
         self._load()
 
     def _load(self):
+        _install_legacy_aliases()
         seen = {}
         for directory in self.plugins_dirs:
             self._load_dir(directory, seen)
@@ -99,7 +134,7 @@ class PluginManager:
                 continue
             path = os.path.join(directory, fname)
             stem = fname[:-3]
-            mod_name = f"appman_plugin_{index}_{stem}"
+            mod_name = f"appship_plugin_{index}_{stem}"
             try:
                 spec = importlib.util.spec_from_file_location(mod_name, path)
                 module = importlib.util.module_from_spec(spec)

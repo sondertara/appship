@@ -3,7 +3,7 @@
 Every entry keeps the original AppImage-era fields; newer fields are optional:
   kind            'appimage' (default when absent) | 'deb'
   pacman_pkg      deb only: local pacman package name
-  deb_dir         deb only: appman deb build directory
+  deb_dir         deb only: appship deb build directory
   backup_pkg      deb only: previously built package file, used by --rollback
    update_source   cached update source, e.g. {"type": "github", "repo": "o/r", "via": "app-update.yml"}
   source_sig      "<size>:<mtime>" of the executable the cached source was discovered from
@@ -322,10 +322,10 @@ class AppRegistry:
                 f"  {pad(app.id, 26)} {pad(app.name, 24)} {pad(kind, 9)} {pad(ver, 18)} "
                 f"{pad(rollback, 10)} {d.get('installed_at', '')}"
             )
-        print("\n  💡 操作命令推荐使用无空格的应用 ID (例如: appman uninstall <App ID>)")
-        print("  💡 'appman check' 检查上游新版本，'appman upgrade' 自动下载并升级。")
+        print("\n  💡 操作命令推荐使用无空格的应用 ID (例如: appship uninstall <App ID>)")
+        print("  💡 'appship check' 检查上游新版本，'appship upgrade' 自动下载并升级。")
         if has_unknown:
-            print("  💡 部分应用版本为 unknown，可运行 'appman repair' 自动嗅探修复。")
+            print("  💡 部分应用版本为 unknown，可运行 'appship repair' 自动嗅探修复。")
         print()
 
     def show_history(self, query=None):
