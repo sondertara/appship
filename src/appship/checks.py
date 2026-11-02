@@ -368,8 +368,8 @@ class UpdateChecker:
                     res.source = f"插件 {plugin.name}"
                 return res, None
 
-        if app.kind == "deb":
-            return Update.none("没有插件提供该 deb 应用的更新来源", local=app.version), None
+        if app.kind != "appimage":
+            return Update.none(f"没有插件提供该 {app.kind} 应用的更新来源", local=app.version), None
         if not app.installed:
             return Update.error("找不到已安装的 AppImage", local=app.version), None
 

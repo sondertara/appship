@@ -1,6 +1,6 @@
 """Repackage official .deb files as local pacman packages.
 
-Each package gets a build dir (``$APPSHIP_DEB_DIR``/``<pkgname>``) holding the generated PKGBUILD, the source
+Each package gets a build dir (``DEB_DIR/<pkgname>``) holding the generated PKGBUILD, the source
 .deb and the built packages. Only the deb's data.tar is used: maintainer scripts (postinst etc. — apt
 repos, update-alternatives) are never run. Plugins can adjust the result through hooks
 (deb_pkgname / deb_depends / deb_package_extra, see plugins.py).
@@ -15,8 +15,12 @@ import subprocess
 import tarfile
 import tempfile
 
-from .config import DEB_ARCH_TO_PACMAN, DEB_DIR, HOST_ARCH
-from .util import AppShipError, clean_version, compare_versions, file_digest
+from . import desktop
+from .config import DEB_DIR, HOST_ARCH
+from .registry import now_str, sanitize_id
+from .util import AppShipError, clean_version, confirm, file_digest, path_size
+
+DEB_ARCH_TO_PACMAN = {"amd64": "x86_64", "arm64": "aarch64", "armhf": "armv7h", "i386": "i686", "all": "any"}
 
 
 # ==============================================================================
@@ -410,5 +414,251 @@ def package_install_prefixes(pkgname):
     return sorted(roots)
 
 
-def newer_than(a, b):
-    return compare_versions(a, b) > 0
+# ==============================================================================
+# Backend plugin surface
+# ==============================================================================
+_REQUIRED_TOOLS = ("pacman", "makepkg", "bsdtar", "fakeroot")
+
+
+def _missing_tools():
+    missing = [tool for tool in _REQUIRED_TOOLS if not shutil.which(tool)]
+    if os.geteuid() != 0 and not shutil.which("sudo"):
+        missing.append("sudo")
+    return missing
+
+
+def available():
+    """True on Arch-family systems with the full deb→pacman toolchain."""
+    return not _missing_tools()
+
+
+def unavailable_reason():
+    missing = _missing_tools()
+    if not missing:
+        return ""
+    return "缺少命令: " + ", ".join(missing)
+
+
+def match_file(path, info=None):
+    return str(path).lower().endswith(".deb") and available()
+
+
+def pacman_installed_versions(names):
+    names = [n for n in names if n]
+    if not names or not shutil.which("pacman"):
+        return {}
+    proc = subprocess.run(["pacman", "-Q", *names], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    found = {}
+    for line in proc.stdout.splitlines():
+        parts = line.split()
+        if len(parts) == 2:
+            found[parts[0]] = parts[1]
+    return found
+
+
+def pacman_to_upstream_version(pkgver):
+    v = pkgver.split(":", 1)[-1]
+    return v.rsplit("-", 1)[0] if "-" in v else v
+
+
+def analyze(installer, path):
+    """Parse a .deb and return the core analyse tuple."""
+    fields = read_control(path)
+    plugin = installer.plugins.for_file(path, {"kind": "deb", "fields": fields}, include_backends=False)
+    pkgname = default_pkgname(fields)
+    version = deb_version(fields)
+    if plugin is not None:
+        pkgname = plugin.call("deb_pkgname", fields) or pkgname
+        version = pacman_safe_version(plugin.call("deb_pkgver", fields, os.path.basename(path)) or version)
+    existing = installer.registry.find_by_pkg(pkgname)
+    app_id = existing.id if existing else sanitize_id(pkgname)
+    return "deb", app_id, version, {"fields": fields, "pkgname": pkgname}, plugin
+
+
+def install(installer, deb_path, meta=None, plugin=None, dry_run=False, auto_yes=False, consume=False):
+    if plugin is None:
+        fields = read_control(deb_path)
+        plugin = installer.plugins.for_file(deb_path, {"kind": "deb", "fields": fields}, include_backends=False)
+    info = build_from_deb(deb_path, plugin=plugin, dry_run=True)
+    pkgname, pkgver = info["pkgname"], info["pkgver"]
+    existing = installer.registry.find_by_pkg(pkgname)
+    installed = pacman_installed_versions([pkgname]).get(pkgname, "")
+    app_name = (plugin.call("deb_app_name", info["fields"]) if plugin else None) or info["name"]
+    status = (
+        f"🔄 升级 ({pacman_to_upstream_version(installed)} -> {pkgver})"
+        if installed
+        else f"✨ 首次安装 (版本: {pkgver})"
+    )
+    print(f"\n📦 正在处理: {app_name}  [deb → pacman 包 {pkgname}]")
+    print(f"   文件来源: {os.path.basename(deb_path)}")
+    print(f"   执行状态: {status}")
+    print(f"   构建目录: {info['build_dir']}")
+    if plugin:
+        print(f"   🧩 插件: {plugin.name}")
+    if info["fields"].get("_scripts"):
+        print(f"   ℹ️  跳过 deb 维护脚本: {', '.join(info['fields']['_scripts'])}")
+    if dry_run:
+        print(f"   [Dry-run] 依赖: {' '.join(info['depends']) or '(无)'}")
+        return
+
+    prev_pkgfile = existing.data.get("package_file") if existing else ""
+    info = build_from_deb(deb_path, plugin=plugin)
+    pkgfile = info["package_file"]
+    print(f"   📦 已生成: {os.path.basename(pkgfile)}")
+    if not pacman_install(pkgfile, auto_yes=auto_yes):
+        raise AppShipError("pacman 安装未完成（已取消或失败），包文件保留在构建目录中")
+
+    app_id = existing.id if existing else sanitize_id(pkgname)
+    installer.registry.register(
+        app_id,
+        app_name,
+        pkgver,
+        os.path.basename(deb_path),
+        kind="deb",
+        pacman_pkg=pkgname,
+        deb_dir=info["build_dir"],
+        package_file=pkgfile,
+        backup_pkg=prev_pkgfile if (prev_pkgfile and prev_pkgfile != pkgfile and os.path.exists(prev_pkgfile)) else "",
+        plugin=plugin.name if plugin else "",
+    )
+    prune_packages(info["build_dir"], keep=2)
+    if consume and os.path.abspath(os.path.dirname(deb_path)) != os.path.abspath(info["build_dir"]):
+        try:
+            os.remove(deb_path)
+        except OSError:
+            pass
+    desktop.refresh_desktop()
+    print(f"   ✅ {app_name} {pkgver} 已通过 pacman 安装")
+    desktop.notify("AppShip", f"🎉 {app_name} 已就绪 (v{pkgver})", icon=pkgname)
+
+
+def uninstall(installer, app, dry_run=False, keep_data=False, auto_yes=False):
+    d = app.data
+    pkg = app.pacman_pkg or app.id
+    installed = bool(pacman_installed_versions([pkg]))
+    prefixes = package_install_prefixes(pkg) if installed else []
+    pids = desktop.running_pids(exe_prefixes=prefixes) if prefixes else []
+    if pids:
+        print(f"⚠️ 注意: '{app.name}' 似乎正在运行 (PID: {', '.join(pids)})。")
+    print(f"\n📦 pacman 包: {pkg} ({'已安装' if installed else '未安装'})，将执行 sudo pacman -R {pkg}")
+
+    build_dir = d.get("deb_dir") or os.path.join(DEB_DIR, pkg)
+    app_files = []
+    if os.path.isdir(build_dir) and os.path.commonpath([DEB_DIR, build_dir]) == DEB_DIR and build_dir != DEB_DIR:
+        app_files.append(
+            {
+                "path": build_dir,
+                "size": path_size(build_dir),
+                "is_dir": True,
+                "category": "构建目录 (PKGBUILD / deb / 包文件)",
+            }
+        )
+    data_files = installer._data_files(app, keep_data, app.name, pkg, app.id, d.get("wm_class", ""))
+    sections = [
+        ("📦 1. appship 构建目录:", app_files),
+        ("🗄️  2. 应用工作数据、配置与缓存:" + (" (已指定 --keep-data，跳过)" if keep_data else ""), data_files),
+    ]
+
+    def remove_pkg():
+        if not installed:
+            return True
+        if pacman_remove(pkg, auto_yes=auto_yes):
+            return True
+        print("❌ pacman 卸载未完成，已停止后续清理。")
+        return False
+
+    installer._confirm_and_purge(app, sections, pids, dry_run, auto_yes, pre_remove=remove_pkg)
+
+
+def rollback(installer, app, auto_yes=False, dry_run=False):
+    backup = app.data.get("backup_pkg")
+    if not backup or not os.path.exists(backup):
+        print(f"❌ '{app.name}' 没有可回滚的旧版本包。")
+        return
+    history = list(app.data.get("history", []))
+    prev_version = next(
+        (h["version"] for h in reversed(history) if h.get("version") != app.version),
+        "previous",
+    )
+    print(f"⏪ 正在将 '{app.name}' 回滚到 {os.path.basename(backup)} ...")
+    if dry_run:
+        print(f"   [Dry-run] 将执行 pacman -U {backup}")
+        return
+    if not confirm(
+        f"❓ 确认回滚 '{app.name}' 到 {os.path.basename(backup)}?",
+        default=False,
+        auto_yes=auto_yes,
+    ):
+        print("❌ 已取消。")
+        return
+    if not pacman_install(backup, auto_yes=auto_yes):
+        print("❌ pacman 安装未完成，回滚取消。")
+        return
+    m = re.search(r"-([^-]+)-\d+-[^-]+\.pkg\.tar\.[a-z0-9]+$", os.path.basename(backup))
+    if m:
+        prev_version = m.group(1)
+    fields = {"package_file": backup, "backup_pkg": app.data.get("package_file", "")}
+    history.append({"version": prev_version, "date": now_str(), "file": "(rollback)"})
+    installer.registry.update(app.id, version=prev_version, history=history, **fields)
+    desktop.refresh_desktop()
+    print(f"✅ 回滚成功！当前版本: {prev_version}（再执行一次 'appship rollback {app.id}' 可撤销）")
+
+
+def adopt(installer, pkgname, plugin_name=""):
+    installed = pacman_installed_versions([pkgname])
+    if pkgname not in installed:
+        raise AppShipError(f"pacman 中没有安装 {pkgname}")
+    if installer.registry.find_by_pkg(pkgname):
+        print(f"ℹ️  {pkgname} 已在 appship 中登记。")
+        return
+    plugin = installer.plugins.get(plugin_name) if plugin_name else None
+    version = pacman_to_upstream_version(installed[pkgname])
+    build_dir = os.path.join(DEB_DIR, pkgname)
+    pkgfile = (
+        built_package(build_dir, pkgname, *installed[pkgname].split(":", 1)[-1].rsplit("-", 1))
+        if os.path.isdir(build_dir)
+        else ""
+    )
+    name = pkgname
+    if plugin and getattr(plugin.module, "APP_NAME", ""):
+        name = plugin.module.APP_NAME
+    installer.registry.register(
+        sanitize_id(pkgname),
+        name,
+        version,
+        "",
+        kind="deb",
+        pacman_pkg=pkgname,
+        deb_dir=build_dir,
+        package_file=pkgfile,
+        backup_pkg="",
+        plugin=plugin.name if plugin else "",
+    )
+    print(f"✅ 已登记 {name} ({pkgname} {version})")
+
+
+def sync_registry(registry):
+    debs = {k: v for k, v in registry.db.items() if v.get("kind") == "deb"}
+    if not debs:
+        return False
+    installed = pacman_installed_versions([v.get("pacman_pkg") or k for k, v in debs.items()])
+    changed = False
+    for app_id, data in debs.items():
+        pkg = data.get("pacman_pkg") or app_id
+        now_installed = pkg in installed
+        if data.get("pkg_installed") != now_installed:
+            data["pkg_installed"] = now_installed
+            changed = True
+        if now_installed:
+            version = pacman_to_upstream_version(installed[pkg])
+            if data.get("version") != version:
+                data["version"] = version
+                changed = True
+    return changed
+
+
+def doctor_checks():
+    missing = _missing_tools()
+    if not missing:
+        return [{"name": "deb backend", "status": "ok", "detail": "pacman/makepkg/bsdtar/fakeroot 可用"}]
+    return [{"name": "deb backend", "status": "warn", "detail": "不可用: " + ", ".join(missing)}]

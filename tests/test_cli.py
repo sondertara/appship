@@ -12,6 +12,8 @@ def test_parser_subcommands():
     args = parser.parse_args(["upgrade", "--dry-run"])
     assert args.command == "upgrade"
     assert args.dry_run is True
+    args = parser.parse_args(["--no-plugins", "list"])
+    assert args.no_plugins is True
 
 
 def test_version_command(capsys):

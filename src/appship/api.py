@@ -2,7 +2,8 @@
 
 from .checks import Update, electron_generic, github_release, zsync_source
 from .config import DEB_DIR, HOME, HOST_ARCH, LOCAL_DIR
-from .registry import App, pacman_to_upstream_version
+from .plugin_api import API_VERSION
+from .registry import App
 from .util import (
     AppShipError,
     clean_version,
@@ -20,6 +21,7 @@ AppManError = AppShipError
 __all__ = [
     "App",
     "AppManError",
+    "API_VERSION",
     "AppShipError",
     "DEB_DIR",
     "HOME",
@@ -33,7 +35,6 @@ __all__ = [
     "http_head",
     "http_json",
     "http_request",
-    "pacman_to_upstream_version",
     "version_from_filename",
     "version_from_tag",
     "zsync_source",

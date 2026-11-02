@@ -14,6 +14,8 @@ NAME = "codebuddy"
 DESCRIPTION = "CodeBuddy CN IDE（腾讯官方 deb → pacman 包 codebuddy-cn，腾讯更新接口检测版本）"
 APP_NAME = "CodeBuddy CN"
 PKGNAME = "codebuddy-cn"
+REQUIRES_BACKEND = "deb"
+API_VERSION = 1
 
 _FEED = "https://copilot.tencent.com/v2/update"
 _FILE_RE = re.compile(r"CodeBuddy-linux-(?:x64|arm64)-(\d+(?:\.\d+)+)-[0-9a-f]+-cn(?: \(\d+\))?\.deb$", re.I)
@@ -57,6 +59,14 @@ def deb_depends(fields, depends):
         "libsecret",
         "xdg-utils",
     ]
+
+
+def deb_package_extra(fields):
+    # The upstream deb ships chrome-sandbox setuid root; keep it across repacks.
+    return (
+        'if [ -e "${pkgdir}/usr/share/buddycn/chrome-sandbox" ]; then '
+        'chmod 4755 "${pkgdir}/usr/share/buddycn/chrome-sandbox"; fi'
+    )
 
 
 def data_dirs(app):

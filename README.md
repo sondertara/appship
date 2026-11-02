@@ -1,7 +1,8 @@
 # appship
 
-User-level AppImage / deb application manager for Linux. It installs apps,
-checks upstream releases, upgrades, rolls back, and keeps a small JSON registry.
+AppImage-first application manager for Linux. It installs apps, checks
+upstream releases, upgrades, rolls back, and keeps a small JSON registry.
+`.deb` support is an optional backend plugin (Arch family only).
 
 `appship` is both the PyPI distribution and the installed command.
 
@@ -33,7 +34,7 @@ sh install.sh
 Pin a version or use a mirror:
 
 ```bash
-APPSHIP_VERSION=0.1.0 sh install.sh
+APPSHIP_VERSION=0.2.0 sh install.sh
 APPSHIP_REPO=owner/repo sh install.sh
 APPSHIP_BASE_URL=http://127.0.0.1:8000 sh install.sh   # mirror / local testing
 ```
@@ -102,10 +103,20 @@ files in `~/local` alone.
 
 ## Plugins
 
-Built-in plugins live in the package (`antigravity`, `codebuddy`, `wechat`).
+Built-in app plugins: `antigravity`, `wechat`, and `codebuddy`.
+Built-in backend plugin: `deb` (deb → pacman), available only on Arch-family
+systems with `pacman`, `makepkg`, `bsdtar`, `fakeroot`, and `sudo`.
+
 User plugins are loaded from `~/.local/share/appship/plugins/` (and the legacy
 `~/local/appman.d/plugins/`). A user plugin with the same `NAME` overrides the
-built-in plugin. Plugins are arbitrary Python code: only install ones you trust.
+built-in plugin. `appship plugins --json` reports `available`, `reason`,
+`backend`, `requires_backend`, and hooks for each plugin.
+
+`codebuddy` declares `REQUIRES_BACKEND = 'deb'`; on non-Arch systems it is listed
+as unavailable and skipped. The deb backend also exposes `appship adopt`.
+
+Use `appship --no-plugins ...` for troubleshooting (no built-in or user plugins).
+Plugins are arbitrary Python code: only install ones you trust.
 
 ## Development
 

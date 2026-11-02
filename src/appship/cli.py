@@ -69,23 +69,32 @@ class ArgParser(argparse.ArgumentParser):
 class Context:
     """Lazy core objects: help/version never touch the registry."""
 
-    def __init__(self):
+    def __init__(self, no_plugins=False):
+        self.no_plugins = no_plugins
         self._registry = None
         self._plugins = None
         self._installer = None
         self._checker = None
+        self._synced = False
+
+    def _sync(self):
+        if not self._synced and self._plugins is not None and self._registry is not None:
+            self._plugins.sync_registry(self._registry)
+            self._synced = True
 
     @property
     def registry(self):
         if self._registry is None:
             self._registry = AppRegistry()
+        self._sync()
         return self._registry
 
     @property
     def plugins(self):
         if self._plugins is None:
-            self._plugins = PluginManager()
+            self._plugins = PluginManager(load_plugins=not self.no_plugins)
             self._plugins.warn_errors()
+        self._sync()
         return self._plugins
 
     @property
@@ -137,7 +146,7 @@ def set_source(registry, query, spec):
 # ==============================================================================
 def _app_json(app):
     data = app.data
-    backup = data.get("backup_pkg") if app.kind == "deb" else data.get("backup_exec_path")
+    backup = data.get("backup_pkg") if app.kind != "appimage" else data.get("backup_exec_path")
     return {
         "id": app.id,
         "name": app.name,
@@ -178,8 +187,12 @@ def cmd_install(args, ctx):
         path = os.path.abspath(os.path.expanduser(raw))
         if not os.path.isfile(path):
             raise AppShipError(f"找不到文件: {path}")
-        if not file_kind(path):
-            raise AppShipError(f"只支持 .AppImage 和 .deb: {path}")
+        if not ctx.installer.supports_file(path):
+            if path.lower().endswith(".deb"):
+                backend = ctx.plugins.get("deb")
+                reason = backend.unavailable_reason if backend else ""
+                raise AppShipError(f"deb backend 不可用: {reason or '需要 pacman/makepkg/fakeroot（仅 Arch 系）'}")
+            raise AppShipError(f"不支持的文件类型: {path}")
         targets.append(path)
     if any(file_kind(t) == "appimage" for t in targets) and not appimage.have_7z():
         print("⚠️  未检测到 7z 命令，AppImage 图标与元数据解析将受限 (sudo pacman -S 7zip)", file=sys.stderr)
@@ -191,9 +204,11 @@ def cmd_scan(args, ctx):
     directory = os.path.abspath(os.path.expanduser(args.dir or DOWNLOADS_DIR))
     if not os.path.isdir(directory):
         raise AppShipError(f"目录不存在: {directory}")
-    targets = scan_dir(directory)
+    include_deb = ctx.plugins.backend("deb") is not None
+    targets = scan_dir(directory, include_deb=include_deb)
     if not targets:
-        print(f"🔍 在 {directory} 未发现 AppImage / deb 文件。")
+        suffix = " / deb" if include_deb else ""
+        print(f"🔍 在 {directory} 未发现 AppImage{suffix} 文件。")
         return 0
     print(f"📥 从 {directory} 读取到 {len(targets)} 个文件...")
     if any(file_kind(t) == "appimage" for t in targets) and not appimage.have_7z():
@@ -203,6 +218,7 @@ def cmd_scan(args, ctx):
 
 
 def cmd_list(args, ctx):
+    _ = ctx.plugins
     apps = ctx.registry.apps()
     if args.json:
         print(json.dumps([_app_json(a) for a in apps], indent=2, ensure_ascii=False))
@@ -273,6 +289,7 @@ def cmd_rollback(args, ctx):
 
 
 def cmd_history(args, ctx):
+    _ = ctx.plugins
     if args.app:
         app = ctx.registry.find(args.app, quiet=args.json or args.quiet)
         if not app:
@@ -294,6 +311,7 @@ def cmd_history(args, ctx):
 
 
 def cmd_repair(args, ctx):
+    _ = ctx.plugins
     repair(ctx.registry, args.app)
     ctx.registry.list_apps()
     return 0
@@ -318,10 +336,7 @@ def cmd_plugins(args, ctx):
     if args.json:
         data = {
             "directories": manager.plugins_dirs,
-            "plugins": [
-                {"name": p.name, "description": p.description, "hooks": p.hooks(), "path": p.path, "source": p.source}
-                for p in manager.plugins
-            ],
+            "plugins": manager.status(),
             "errors": [{"file": fname, "error": repr(exc)} for fname, exc in manager.errors],
         }
         print(json.dumps(data, indent=2, ensure_ascii=False))
@@ -373,15 +388,15 @@ def cmd_doctor(args, ctx):
         add("注册表", "warn", f"{VERSIONS_DB_PATH}（不存在）")
 
     apps = ctx.registry.apps()
-    broken = [a.id for a in apps if a.kind != "deb" and not a.installed]
-    uninstalled = [a.id for a in apps if a.kind == "deb" and not a.installed]
+    broken = [a.id for a in apps if a.kind == "appimage" and not a.installed]
+    uninstalled = [f"{a.kind}:{a.id}" for a in apps if a.kind != "appimage" and not a.installed]
     add(
         "应用完整性",
         "error" if broken else "ok",
         "找不到可执行文件: " + ", ".join(broken) if broken else f"{len(apps)} 个应用的执行路径正常",
     )
     if uninstalled:
-        add("deb 安装状态", "warn", "pacman 中未安装: " + ", ".join(uninstalled))
+        add("后端安装状态", "warn", "未安装: " + ", ".join(uninstalled))
     unknown = [a.id for a in apps if a.version == "unknown"]
     add("版本号", "warn" if unknown else "ok", ("unknown: " + ", ".join(unknown)) if unknown else "全部已知")
 
@@ -405,6 +420,8 @@ def cmd_doctor(args, ctx):
         "error" if plugin_errors else "ok",
         f"{len(ctx.plugins.plugins)} 个已加载" + (f"，{len(plugin_errors)} 个加载失败" if plugin_errors else ""),
     )
+    for check in ctx.plugins.doctor_checks():
+        add(check.get("name", "backend"), check.get("status", "warn"), check.get("detail", ""))
 
     try:
         free = shutil.disk_usage(LOCAL_DIR).free
@@ -457,12 +474,13 @@ def cmd_help(topic, parser):
 def build_parser():
     p = ArgParser(
         prog="appship",
-        description=f"AppShip {__version__} - AppImage / deb 统一安装、检测与升级",
+        description=f"AppShip {__version__} - AppImage 管理器（deb 通过可选 backend）",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=EPILOG,
     )
     p.add_argument("-v", "--verbose", action="store_true", help="显示更多检查细节")
     p.add_argument("--no-color", action="store_true", help="禁用颜色（NO_COLOR）")
+    p.add_argument("--no-plugins", action="store_true", help="禁用内置与用户插件（排障用）")
     p.add_argument("--version", action="version", version=f"appship {__version__}")
     sub = p.add_subparsers(dest="command", required=True, metavar="COMMAND")
 
@@ -533,7 +551,7 @@ def build_parser():
     sp.add_argument("spec", metavar="SPEC", help="github:owner/repo | zsync:URL | auto")
     sp.set_defaults(func=cmd_set_source)
 
-    sp = sub.add_parser("adopt", help="登记已通过 pacman 安装的 deb 重打包应用")
+    sp = sub.add_parser("adopt", help="登记已由可用 backend 管理的应用")
     sp.add_argument("pkg", metavar="PKG")
     sp.add_argument("--plugin", metavar="NAME")
     sp.set_defaults(func=cmd_adopt)
@@ -576,7 +594,7 @@ def main(argv=None):
         print(f"appship {__version__}")
         return 0
 
-    ctx = Context()
+    ctx = Context(no_plugins=args.no_plugins)
     try:
         return args.func(args, ctx)
     except AppShipError as exc:

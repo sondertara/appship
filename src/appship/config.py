@@ -93,9 +93,6 @@ ARCH_ALIASES = {
     "i686": ("i686", "i386", "ia32"),
 }
 
-# Debian "Architecture:" -> pacman arch
-DEB_ARCH_TO_PACMAN = {"amd64": "x86_64", "arm64": "aarch64", "armhf": "armv7h", "i386": "i686", "all": "any"}
-
 
 def _alias_re(names):
     return re.compile(r"(?<![a-z0-9])(?:" + "|".join(re.escape(n) for n in names) + r")(?![a-z0-9])")

@@ -15,7 +15,6 @@ import json
 import os
 import re
 import shutil
-import subprocess
 import sys
 from datetime import datetime
 
@@ -55,26 +54,6 @@ def strip_channel_qualifiers(name):
     return s or name
 
 
-def pacman_installed_versions(names):
-    """{pkg: version} for the given names that pacman reports as installed."""
-    names = [n for n in names if n]
-    if not names or not shutil.which("pacman"):
-        return {}
-    proc = subprocess.run(["pacman", "-Q", *names], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
-    found = {}
-    for line in proc.stdout.splitlines():
-        parts = line.split()
-        if len(parts) == 2:
-            found[parts[0]] = parts[1]
-    return found
-
-
-def pacman_to_upstream_version(pkgver):
-    """'1:4.12.0.37847260-1' -> '4.12.0.37847260'."""
-    v = pkgver.split(":", 1)[-1]
-    return v.rsplit("-", 1)[0] if "-" in v else v
-
-
 class App:
     """Thin view over one registry entry, handed to plugins and checkers."""
 
@@ -104,7 +83,7 @@ class App:
 
     @property
     def installed(self):
-        if self.kind == "deb":
+        if self.kind != "appimage":
             return bool(self.data.get("pkg_installed", True))
         return bool(self.exec_path) and os.path.isfile(self.exec_path)
 
@@ -118,7 +97,6 @@ class AppRegistry:
         self.db = self._load()
         self._rebase_paths()
         self._sync_appimage_versions()
-        self._sync_deb_versions()
 
     # ------------------------------------------------------------------ persistence
     def _load(self):
@@ -214,20 +192,6 @@ class AppRegistry:
         if modified:
             self.save()
 
-    def _sync_deb_versions(self):
-        """For deb apps pacman is the source of truth: reflect its installed version (not persisted)."""
-        debs = {k: v for k, v in self.db.items() if v.get("kind") == "deb"}
-        if not debs:
-            return
-        installed = pacman_installed_versions([v.get("pacman_pkg") or k for k, v in debs.items()])
-        for app_id, data in debs.items():
-            pkg = data.get("pacman_pkg") or app_id
-            if pkg in installed:
-                data["pkg_installed"] = True
-                data["version"] = pacman_to_upstream_version(installed[pkg])
-            else:
-                data["pkg_installed"] = False
-
     # ------------------------------------------------------------------ lookup
     def apps(self):
         return [App(k, v) for k, v in sorted(self.db.items(), key=lambda kv: kv[0].lower())]
@@ -261,7 +225,7 @@ class AppRegistry:
 
     def find_by_pkg(self, pkg):
         for k, v in self.db.items():
-            if v.get("kind") == "deb" and (v.get("pacman_pkg") or k) == pkg:
+            if (v.get("pacman_pkg") or k) == pkg:
                 return App(k, v)
         return None
 
@@ -274,7 +238,7 @@ class AppRegistry:
             k: v for k, v in self.db.get(app_id, {}).items() if k in ("update_source", "source_sig", "source_pinned")
         }
         entry = {"name": name, "version": version, **fields, "installed_at": now_str(), "history": history}
-        if entry.get("kind") != "deb":
+        if entry.get("kind") in (None, "", "appimage"):
             entry.pop("kind", None)
             icon = entry.get("icon_path")
             entry["icon_path"] = icon if (icon and os.path.exists(icon)) else ""
@@ -309,14 +273,14 @@ class AppRegistry:
             d = app.data
             ver = app.version
             has_unknown |= ver == "unknown"
-            if app.kind == "deb":
-                kind = "deb"
-                if not d.get("pkg_installed", True):
-                    ver = f"{ver} (未安装)"
-                backup = d.get("backup_pkg")
-            else:
+            if app.kind == "appimage":
                 kind = "AppImage"
                 backup = d.get("backup_exec_path")
+            else:
+                kind = app.kind
+                if not d.get("pkg_installed", True):
+                    ver = f"{ver} (未安装)"
+                backup = d.get("backup_pkg") or d.get("backup_exec_path")
             rollback = "是" if (backup and os.path.exists(backup)) else "否"
             print(
                 f"  {pad(app.id, 26)} {pad(app.name, 24)} {pad(kind, 9)} {pad(ver, 18)} "

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.0
+
+- Plugin API v1: backend plugins, availability/system detection, API version
+  handshake, `REQUIRES_BACKEND`, structured plugin status, and `--no-plugins`.
+- deb → pacman is now an optional built-in backend plugin (`deb`), enabled only
+  when `pacman`, `makepkg`, `bsdtar`, `fakeroot`, and `sudo` are present.
+- Core `installer`/`registry`/`doctor` no longer import pacman-specific logic.
+- `codebuddy` declares `REQUIRES_BACKEND = 'deb'` and preserves
+  `chrome-sandbox` setuid on repacks.
+- `scan` only includes `.deb` when the deb backend is available.
+
 ## 0.1.0
 
 - First public release.

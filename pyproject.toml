@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "appship"
-version = "0.1.0"
-description = "User-level AppImage / deb application manager with upstream update checks"
+version = "0.2.0"
+description = "AppImage-first Linux app manager with an optional deb backend plugin"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }

@@ -6,19 +6,14 @@ import re
 import shutil
 from functools import cmp_to_key
 
-from . import appimage, debpkg, desktop
-from .config import APPLICATIONS_DIR, DEB_DIR, DOWNLOAD_CACHE, ICONS_DIR, LOCAL_DIR
-from .registry import now_str, pacman_installed_versions, pacman_to_upstream_version, sanitize_folder_name, sanitize_id
+from . import appimage, desktop
+from .config import APPLICATIONS_DIR, DOWNLOAD_CACHE, ICONS_DIR, LOCAL_DIR
+from .registry import now_str, sanitize_folder_name, sanitize_id
 from .util import AppShipError, compare_versions, confirm, download, format_size, path_size
 
 
 def file_kind(path):
-    low = path.lower()
-    if low.endswith(".deb"):
-        return "deb"
-    if low.endswith(".appimage"):
-        return "appimage"
-    return ""
+    return "appimage" if path.lower().endswith(".appimage") else ""
 
 
 class Installer:
@@ -53,20 +48,19 @@ class Installer:
     def analyse(self, path):
         """(kind, app_id, version, meta, plugin) for an incoming file."""
         kind = file_kind(path)
-        if kind == "deb":
-            fields = debpkg.read_control(path)
-            plugin = self.plugins.for_file(path, {"kind": "deb", "fields": fields})
-            pkgname = debpkg.default_pkgname(fields)
-            version = debpkg.deb_version(fields)
-            if plugin:
-                pkgname = plugin._call("deb_pkgname", fields) or pkgname
-                version = plugin._call("deb_pkgver", fields, os.path.basename(path)) or version
-            existing = self.registry.find_by_pkg(pkgname)
-            app_id = existing.id if existing else sanitize_id(pkgname)
-            return kind, app_id, version, {"fields": fields, "pkgname": pkgname}, plugin
-        meta = appimage.extract_metadata(path)
-        plugin = self.plugins.for_file(path, {"kind": "appimage", "meta": meta})
-        return kind, sanitize_id(meta["app_name"]), meta["version"], meta, plugin
+        if kind == "appimage":
+            meta = appimage.extract_metadata(path)
+            plugin = self.plugins.for_file(path, {"kind": "appimage", "meta": meta})
+            return kind, sanitize_id(meta["app_name"]), meta["version"], meta, plugin
+        backend = self.plugins.backend_for_file(path, {})
+        if backend is None:
+            raise AppShipError(f"没有可用的 backend 处理: {os.path.basename(path)}")
+        return backend.call("analyze", self, path, required=True)
+
+    def supports_file(self, path):
+        if file_kind(path):
+            return True
+        return self.plugins.backend_for_file(path, {}) is not None
 
     def process_files(self, targets, dry_run=False, force=False, auto_yes=False):
         if not targets:
@@ -115,10 +109,23 @@ class Installer:
         print(f"\n⚙️  开始安装/升级 ({len(todo)} 款应用)...")
         for path, kind, meta, plugin in todo:
             try:
-                if kind == "deb":
-                    self.install_deb(path, plugin=plugin, dry_run=dry_run, auto_yes=auto_yes, consume=True)
-                else:
+                if kind == "appimage":
                     self.install_appimage(path, meta, dry_run=dry_run)
+                else:
+                    backend = self.plugins.backend(kind)
+                    if backend is None:
+                        raise AppShipError(f"backend 不可用: {kind}")
+                    backend.call(
+                        "install",
+                        self,
+                        path,
+                        meta=meta,
+                        plugin=plugin,
+                        dry_run=dry_run,
+                        auto_yes=auto_yes,
+                        consume=True,
+                        required=True,
+                    )
             except AppShipError as e:
                 print(f"❌ 安装 {os.path.basename(path)} 失败: {e}")
             except Exception as e:
@@ -195,67 +202,6 @@ class Installer:
         desktop.notify("AppShip", f"🎉 {meta['app_name']} 已就绪 (v{meta['version']})", icon=icon or app_id)
 
     # ==================================================================
-    # .deb (repackaged as a local pacman package)
-    # ==================================================================
-    def install_deb(self, deb_path, plugin=None, dry_run=False, auto_yes=False, consume=False):
-        if plugin is None:
-            fields = debpkg.read_control(deb_path)
-            plugin = self.plugins.for_file(deb_path, {"kind": "deb", "fields": fields})
-        info = debpkg.build_from_deb(deb_path, plugin=plugin, dry_run=True)
-        pkgname, pkgver = info["pkgname"], info["pkgver"]
-        existing = self.registry.find_by_pkg(pkgname)
-        installed = pacman_installed_versions([pkgname]).get(pkgname, "")
-        app_name = (plugin._call("deb_app_name", info["fields"]) if plugin else None) or info["name"]
-        status = (
-            f"🔄 升级 ({pacman_to_upstream_version(installed)} -> {pkgver})"
-            if installed
-            else f"✨ 首次安装 (版本: {pkgver})"
-        )
-        print(f"\n📦 正在处理: {app_name}  [deb → pacman 包 {pkgname}]")
-        print(f"   文件来源: {os.path.basename(deb_path)}")
-        print(f"   执行状态: {status}")
-        print(f"   构建目录: {info['build_dir']}")
-        if plugin:
-            print(f"   🧩 插件: {plugin.name}")
-        if info["fields"].get("_scripts"):
-            print(f"   ℹ️  跳过 deb 维护脚本: {', '.join(info['fields']['_scripts'])}")
-        if dry_run:
-            print(f"   [Dry-run] 依赖: {' '.join(info['depends']) or '(无)'}")
-            return
-
-        prev_pkgfile = existing.data.get("package_file") if existing else ""
-        info = debpkg.build_from_deb(deb_path, plugin=plugin)
-        pkgfile = info["package_file"]
-        print(f"   📦 已生成: {os.path.basename(pkgfile)}")
-        if not debpkg.pacman_install(pkgfile, auto_yes=auto_yes):
-            raise AppShipError("pacman 安装未完成（已取消或失败），包文件保留在构建目录中")
-
-        app_id = existing.id if existing else sanitize_id(pkgname)
-        self.registry.register(
-            app_id,
-            app_name,
-            pkgver,
-            os.path.basename(deb_path),
-            kind="deb",
-            pacman_pkg=pkgname,
-            deb_dir=info["build_dir"],
-            package_file=pkgfile,
-            backup_pkg=prev_pkgfile
-            if (prev_pkgfile and prev_pkgfile != pkgfile and os.path.exists(prev_pkgfile))
-            else "",
-            plugin=plugin.name if plugin else "",
-        )
-        debpkg.prune_packages(info["build_dir"], keep=2)
-        if consume and os.path.abspath(os.path.dirname(deb_path)) != os.path.abspath(info["build_dir"]):
-            try:
-                os.remove(deb_path)  # a copy lives in the build dir
-            except OSError:
-                pass
-        desktop.refresh_desktop()
-        print(f"   ✅ {app_name} {pkgver} 已通过 pacman 安装")
-        desktop.notify("AppShip", f"🎉 {app_name} 已就绪 (v{pkgver})", icon=pkgname)
-
-    # ==================================================================
     # Upgrade (check + download + install)
     # ==================================================================
     def upgrade(self, checker, query=None, dry_run=False, auto_yes=False):
@@ -303,10 +249,10 @@ class Installer:
                 continue
             try:
                 kind = res.kind or file_kind(path)
-                if kind == "deb":
-                    plugin = self.plugins.for_app(app)
-                    self.install_deb(path, plugin=plugin, auto_yes=auto_yes, consume=True)
-                else:
+                if not kind:
+                    backend = self.plugins.backend_for_file(path, {})
+                    kind = backend.backend if backend else ""
+                if kind == "appimage":
                     meta = appimage.extract_metadata(path)
                     remote_is_version = bool(re.match(r"^\d", res.remote or ""))
                     if remote_is_version and (
@@ -316,6 +262,20 @@ class Installer:
                     meta["app_name"] = app.name  # keep the registered identity across upgrades
                     meta["filename"] = res.filename or os.path.basename(path)
                     self.install_appimage(path, meta)
+                else:
+                    backend = self.plugins.backend(kind)
+                    if backend is None:
+                        raise AppShipError(f"backend 不可用: {kind}")
+                    plugin = self.plugins.for_app(app)
+                    backend.call(
+                        "install",
+                        self,
+                        path,
+                        plugin=plugin,
+                        auto_yes=auto_yes,
+                        consume=True,
+                        required=True,
+                    )
             except AppShipError as e:
                 print(f"   ❌ 安装失败: {e}")
             except Exception as e:
@@ -330,55 +290,41 @@ class Installer:
         if not app:
             print(f"❌ 未找到已注册的应用: '{query}'。请先使用 'appship list' 查看。")
             return
+        if app.kind != "appimage":
+            backend = self.plugins.backend(app.kind)
+            if backend is None:
+                print(f"❌ 没有可用的 backend 处理 {app.kind} 应用。")
+                return
+            backend.call("rollback", self, app, auto_yes=auto_yes, dry_run=dry_run, required=True)
+            return
         history = list(app.data.get("history", []))
-        # The version we are going back to: the newest history entry that differs from the current one.
-        prev_version = next((h["version"] for h in reversed(history) if h.get("version") != app.version), "previous")
-
-        if app.kind == "deb":
-            backup = app.data.get("backup_pkg")
-            if not backup or not os.path.exists(backup):
-                print(f"❌ '{app.name}' 没有可回滚的旧版本包。")
-                return
-            print(f"⏪ 正在将 '{app.name}' 回滚到 {os.path.basename(backup)} ...")
-            if dry_run:
-                print(f"   [Dry-run] 将执行 pacman -U {backup}")
-                return
-            if not confirm(
-                f"❓ 确认回滚 '{app.name}' 到 {os.path.basename(backup)}?", default=False, auto_yes=auto_yes
-            ):
-                print("❌ 已取消。")
-                return
-            if not debpkg.pacman_install(backup, auto_yes=auto_yes):
-                print("❌ pacman 安装未完成，回滚取消。")
-                return
-            m = re.search(r"-([^-]+)-\d+-[^-]+\.pkg\.tar\.[a-z0-9]+$", os.path.basename(backup))
-            if m:
-                prev_version = m.group(1)
-            fields = {"package_file": backup, "backup_pkg": app.data.get("package_file", "")}
-        else:
-            backup = app.data.get("backup_exec_path")
-            curr = app.exec_path
-            if not backup or not os.path.exists(backup):
-                print(f"❌ '{app.name}' 没有检测到可用的旧版本备份 (.AppImage.old)。")
-                return
-            print(f"⏪ 正在为 '{app.name}' 回滚到上一个版本...")
-            if dry_run:
-                print(f"   [Dry-run] 将交换 {curr} 与 {backup}")
-                return
-            if not confirm(f"❓ 确认回滚 '{app.name}'?", default=False, auto_yes=auto_yes):
-                print("❌ 已取消。")
-                return
-            swap = curr + ".swap"
-            os.replace(curr, swap)
-            os.replace(backup, curr)
-            os.replace(swap, backup)  # keep the newer build so the rollback can be undone
-            try:
-                v = appimage.extract_metadata(curr).get("version")
-                if v and v != "unknown":
-                    prev_version = v
-            except Exception:
-                pass
-            fields = {"source_sig": "", "exec_sig": appimage.exec_signature(curr)}
+        prev_version = next(
+            (h["version"] for h in reversed(history) if h.get("version") != app.version),
+            "previous",
+        )
+        backup = app.data.get("backup_exec_path")
+        curr = app.exec_path
+        if not backup or not os.path.exists(backup):
+            print(f"❌ '{app.name}' 没有检测到可用的旧版本备份 (.AppImage.old)。")
+            return
+        print(f"⏪ 正在为 '{app.name}' 回滚到上一个版本...")
+        if dry_run:
+            print(f"   [Dry-run] 将交换 {curr} 与 {backup}")
+            return
+        if not confirm(f"❓ 确认回滚 '{app.name}'?", default=False, auto_yes=auto_yes):
+            print("❌ 已取消。")
+            return
+        swap = curr + ".swap"
+        os.replace(curr, swap)
+        os.replace(backup, curr)
+        os.replace(swap, backup)  # keep the newer build so the rollback can be undone
+        try:
+            v = appimage.extract_metadata(curr).get("version")
+            if v and v != "unknown":
+                prev_version = v
+        except Exception:
+            pass
+        fields = {"source_sig": "", "exec_sig": appimage.exec_signature(curr)}
         history.append({"version": prev_version, "date": now_str(), "file": "(rollback)"})
         self.registry.update(app.id, version=prev_version, history=history, **fields)
         desktop.refresh_desktop()
@@ -409,9 +355,21 @@ class Installer:
         if not app:
             print(f"❌ 未找到匹配的应用: '{query}'。请先使用 --list 查看。")
             return
-        if app.kind == "deb":
-            return self._uninstall_deb(app, dry_run, keep_data, auto_yes)
-        return self._uninstall_appimage(app, dry_run, keep_data, auto_yes)
+        if app.kind == "appimage":
+            return self._uninstall_appimage(app, dry_run, keep_data, auto_yes)
+        backend = self.plugins.backend(app.kind)
+        if backend is None:
+            print(f"❌ 没有可用的 backend 处理 {app.kind} 应用。")
+            return
+        return backend.call(
+            "uninstall",
+            self,
+            app,
+            dry_run=dry_run,
+            keep_data=keep_data,
+            auto_yes=auto_yes,
+            required=True,
+        )
 
     def _confirm_and_purge(self, app, sections, pids, dry_run, auto_yes, pre_remove=None):
         items = [i for _title, group in sections for i in group]
@@ -500,74 +458,11 @@ class Installer:
         ]
         self._confirm_and_purge(app, sections, pids, dry_run, auto_yes)
 
-    def _uninstall_deb(self, app, dry_run, keep_data, auto_yes):
-        d = app.data
-        pkg = app.pacman_pkg or app.id
-        installed = bool(pacman_installed_versions([pkg]))
-        prefixes = debpkg.package_install_prefixes(pkg) if installed else []
-        pids = desktop.running_pids(exe_prefixes=prefixes) if prefixes else []
-        if pids:
-            print(f"⚠️ 注意: '{app.name}' 似乎正在运行 (PID: {', '.join(pids)})。")
-        print(f"\n📦 pacman 包: {pkg} ({'已安装' if installed else '未安装'})，将执行 sudo pacman -R {pkg}")
-
-        build_dir = d.get("deb_dir") or os.path.join(DEB_DIR, pkg)
-        app_files = []
-        if os.path.isdir(build_dir) and os.path.commonpath([DEB_DIR, build_dir]) == DEB_DIR and build_dir != DEB_DIR:
-            app_files.append(
-                {
-                    "path": build_dir,
-                    "size": path_size(build_dir),
-                    "is_dir": True,
-                    "category": "构建目录 (PKGBUILD / deb / 包文件)",
-                }
-            )
-        data_files = self._data_files(app, keep_data, app.name, pkg, app.id, d.get("wm_class", ""))
-        sections = [
-            ("📦 1. appship 构建目录:", app_files),
-            ("🗄️  2. 应用工作数据、配置与缓存:" + (" (已指定 --keep-data，跳过)" if keep_data else ""), data_files),
-        ]
-
-        def remove_pkg():
-            if not installed:
-                return True
-            if debpkg.pacman_remove(pkg, auto_yes=auto_yes):
-                return True
-            print("❌ pacman 卸载未完成，已停止后续清理。")
-            return False
-
-        self._confirm_and_purge(app, sections, pids, dry_run, auto_yes, pre_remove=remove_pkg)
-
     # ==================================================================
     # Adopt an already-installed pacman package
     # ==================================================================
     def adopt_pkg(self, pkgname, plugin_name=""):
-        installed = pacman_installed_versions([pkgname])
-        if pkgname not in installed:
-            raise AppShipError(f"pacman 中没有安装 {pkgname}")
-        if self.registry.find_by_pkg(pkgname):
-            print(f"ℹ️  {pkgname} 已在 appship 中登记。")
-            return
-        plugin = self.plugins.get(plugin_name) if plugin_name else None
-        version = pacman_to_upstream_version(installed[pkgname])
-        build_dir = os.path.join(DEB_DIR, pkgname)
-        pkgfile = (
-            debpkg.built_package(build_dir, pkgname, *installed[pkgname].split(":", 1)[-1].rsplit("-", 1))
-            if os.path.isdir(build_dir)
-            else ""
-        )
-        name = pkgname
-        if plugin and getattr(plugin.module, "APP_NAME", ""):
-            name = plugin.module.APP_NAME
-        self.registry.register(
-            sanitize_id(pkgname),
-            name,
-            version,
-            "",
-            kind="deb",
-            pacman_pkg=pkgname,
-            deb_dir=build_dir,
-            package_file=pkgfile,
-            backup_pkg="",
-            plugin=plugin.name if plugin else "",
-        )
-        print(f"✅ 已登记 {name} ({pkgname} {version})")
+        for backend in self.plugins.backends():
+            if callable(getattr(backend.module, "adopt", None)):
+                return backend.call("adopt", self, pkgname, plugin_name, required=True)
+        raise AppShipError("没有可用的 backend 支持 adopt")
