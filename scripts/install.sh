@@ -25,6 +25,7 @@ Environment:
   APPMAN_PREFIX   install prefix for the command (default: ~/.local)
   APPMAN_PYZ      use a local appman.pyz (offline install)
   APPMAN_SHA256   expected SHA256 for a local/remote appman.pyz
+  APPMAN_BASE_URL mirror/testing base containing appman.pyz + SHA256SUMS
   PYTHON          Python >= 3.11 interpreter (default: python3)
 
 Code is installed under $VERSIONS_DIR/<version>/ and linked from $BIN_DIR/appman.
@@ -123,7 +124,9 @@ if [ -n "$LOCAL_PYZ" ]; then
     [ -f "$LOCAL_PYZ" ] || die "找不到 APPMAN_PYZ: $LOCAL_PYZ"
     cp "$LOCAL_PYZ" "$tmp/appman.pyz"
 else
-    if [ "$VERSION" = "latest" ]; then
+    if [ -n "${APPMAN_BASE_URL:-}" ]; then
+        base="${APPMAN_BASE_URL%/}"
+    elif [ "$VERSION" = "latest" ]; then
         base="https://github.com/$REPO/releases/latest/download"
     else
         tag="v${VERSION#v}"

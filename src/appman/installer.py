@@ -465,7 +465,7 @@ class Installer:
         folder = d.get("folder", app.name)
         folder_path = d.get("folder_path", os.path.join(LOCAL_DIR, folder))
         desktop_path = d.get("desktop_path", os.path.join(APPLICATIONS_DIR, f"{app.id}.desktop"))
-        pids = desktop.running_pids(app.exec_path, app.name)
+        pids = desktop.running_pids(app.exec_path, exe_prefixes=(folder_path,))
         if pids:
             print(f"⚠️ 注意: '{app.name}' 似乎正在运行 (PID: {', '.join(pids)})。")
 

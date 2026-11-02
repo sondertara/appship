@@ -149,9 +149,8 @@ def find_loose_installers(*names, search_dir=LOCAL_DIR):
     return found
 
 
-def running_pids(exec_path="", app_name="", exe_prefixes=()):
-    """PIDs of this user's processes running the given executable / AppImage mount / install prefix."""
-    from .registry import sanitize_id
+def running_pids(exec_path="", exe_prefixes=()):
+    """PIDs of this user's processes running the given executable / install prefix."""
 
     my_pid, my_uid = str(os.getpid()), os.getuid()
     protected = {
@@ -173,8 +172,7 @@ def running_pids(exec_path="", app_name="", exe_prefixes=()):
         "python",
     }
     exec_abs = os.path.abspath(exec_path) if exec_path else ""
-    mount = f".mount_{sanitize_id(app_name)}" if app_name else ""
-    needles = [n for n in (exec_abs, mount, *exe_prefixes) if n]
+    needles = [n for n in (exec_abs, *exe_prefixes) if n]
     pids = set()
     for proc_dir in glob.glob("/proc/[0-9]*/"):
         pid = os.path.basename(proc_dir.rstrip("/"))
