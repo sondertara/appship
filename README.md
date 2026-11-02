@@ -35,7 +35,7 @@ sh install.sh
 Pin a version or use a mirror:
 
 ```bash
-APPMAN_VERSION=3.1.0 sh install.sh
+APPMAN_VERSION=1.0.0 sh install.sh
 APPMAN_REPO=owner/repo sh install.sh
 APPMAN_BASE_URL=http://127.0.0.1:8000 sh install.sh   # mirror / local testing
 ```

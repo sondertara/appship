@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "appman-cli"
-version = "3.1.0"
+version = "1.0.0"
 description = "User-level AppImage / deb application manager with upstream update checks"
 readme = "README.md"
 requires-python = ">=3.11"
