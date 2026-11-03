@@ -1,4 +1,4 @@
-from appship.registry import AppRegistry, sanitize_id
+from appship.registry import AppRegistry, sanitize_folder_name, sanitize_id
 
 
 def test_registry_round_trip(tmp_path):
@@ -37,3 +37,4 @@ def test_registry_round_trip(tmp_path):
 def test_sanitize_id_strips_channel_words():
     assert sanitize_id("Foo (Beta)") == "foo"
     assert sanitize_id("Bar - Insiders") == "bar"
+    assert sanitize_folder_name("OpenChamber") == "openchamber"

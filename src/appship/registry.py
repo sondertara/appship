@@ -34,10 +34,7 @@ def sanitize_id(name):
 
 
 def sanitize_folder_name(name):
-    s = re.sub(r'[\/\\:\*\?"<>\|\(\)\[\]\{\}\$`!&;\'~#\^]', "", strip_channel_qualifiers(name).strip())
-    s = re.sub(r"\s+", "-", s)
-    s = re.sub(r"-+", "-", s).strip("-")
-    return s or "App"
+    return sanitize_id(name)
 
 
 _CHANNEL_WORDS = r"(?:alpha|beta|rc\d*|dev|nightly|preview|canary|insiders|insider|stable)"

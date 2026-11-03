@@ -51,7 +51,9 @@ class Installer:
         if kind == "appimage":
             meta = appimage.extract_metadata(path)
             plugin = self.plugins.for_file(path, {"kind": "appimage", "meta": meta})
-            return kind, sanitize_id(meta["app_name"]), meta["version"], meta, plugin
+            app_id = (plugin._call("app_id", meta) if plugin else None) or sanitize_id(meta["app_name"])
+            meta["app_id"] = app_id
+            return kind, app_id, meta["version"], meta, plugin
         backend = self.plugins.backend_for_file(path, {})
         if backend is None:
             raise AppShipError(f"没有可用的 backend 处理: {os.path.basename(path)}")
@@ -138,8 +140,8 @@ class Installer:
     # AppImage
     # ==================================================================
     def install_appimage(self, app_path, meta, dry_run=False):
-        folder = sanitize_folder_name(meta["app_name"])
-        app_id = sanitize_id(meta["app_name"])
+        app_id = meta.get("app_id") or sanitize_id(meta["app_name"])
+        folder = sanitize_folder_name(app_id) if not meta.get("app_id") else app_id
         app_dir = os.path.join(LOCAL_DIR, folder)
         target = os.path.join(app_dir, f"{folder}.AppImage")
         backup = os.path.join(app_dir, f"{folder}.AppImage.old")
@@ -260,6 +262,7 @@ class Installer:
                     ):
                         meta["version"] = res.remote
                     meta["app_name"] = app.name  # keep the registered identity across upgrades
+                    meta["app_id"] = app.id
                     meta["filename"] = res.filename or os.path.basename(path)
                     self.install_appimage(path, meta)
                 else:

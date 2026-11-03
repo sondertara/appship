@@ -30,6 +30,7 @@ from .util import AppShipError
 HOOKS = (
     "match",
     "match_file",
+    "app_id",
     "check",
     "deb_pkgname",
     "deb_pkgver",

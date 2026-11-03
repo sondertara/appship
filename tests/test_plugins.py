@@ -74,3 +74,13 @@ def test_plugin_api_version_mismatch_rejected(tmp_path):
     manager = PluginManager(plugins_dirs=[str(tmp_path)])
     assert manager.get("bad") is None
     assert any(name == "bad.py" for name, _exc in manager.errors)
+
+
+def test_antigravity_plugin_separates_stable_and_insiders_id(tmp_path):
+    manager = PluginManager(plugins_dirs=[str(tmp_path)])
+    plugin = manager.get("antigravity")
+    assert plugin.call("app_id", {"app_name": "Antigravity", "version": "2.28.2"}) == "antigravity"
+    assert (
+        plugin.call("app_id", {"app_name": "Antigravity - Insiders", "version": "1.0.20261103110059"})
+        == "antigravity-insiders"
+    )

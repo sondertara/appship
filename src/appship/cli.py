@@ -311,8 +311,7 @@ def cmd_history(args, ctx):
 
 
 def cmd_repair(args, ctx):
-    _ = ctx.plugins
-    repair(ctx.registry, args.app)
+    repair(ctx.registry, args.app, plugins=ctx.plugins)
     ctx.registry.list_apps()
     return 0
 

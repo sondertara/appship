@@ -6,7 +6,7 @@ import shutil
 
 from . import appimage, desktop
 from .config import APPLICATIONS_DIR, ICONS_DIR, LOCAL_DIR
-from .registry import now_str, sanitize_folder_name, sanitize_id
+from .registry import App, now_str, sanitize_folder_name, sanitize_id
 from .util import clean_version
 
 
@@ -20,7 +20,7 @@ def _fallback_meta(data, app_id):
     }
 
 
-def repair(registry, query=None):
+def repair(registry, query=None, plugins=None):
     print(f"\n🔧 正在扫描并修复 {LOCAL_DIR} 中已安装应用的版本与元数据...")
     if query:
         app = registry.find(query)
@@ -46,8 +46,10 @@ def repair(registry, query=None):
 
         changes = []
         name = data.get("name", app_id)
-        canonical_id = sanitize_id(name)
-        canonical_folder = sanitize_folder_name(name)
+        plugin = plugins.for_app(App(app_id, data)) if plugins else None
+        plugin_id = plugin._call("app_id", {"app_name": name, "version": data.get("version", "")}) if plugin else None
+        canonical_id = plugin_id or sanitize_id(name)
+        canonical_folder = canonical_id if plugin_id else sanitize_folder_name(name)
         cur_folder = data.get("folder", canonical_folder)
         cur_folder_path = data.get("folder_path") or os.path.join(LOCAL_DIR, cur_folder)
 

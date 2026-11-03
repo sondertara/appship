@@ -40,7 +40,8 @@ def write_desktop_entry(meta, target_exec, icon_path, desktop_path):
     is_wayland = os.environ.get("XDG_SESSION_TYPE") == "wayland" or bool(os.environ.get("WAYLAND_DISPLAY"))
     wm = (meta.get("wm_class") or "").lower()
     if is_wayland and (
-        wm in ("cursor", "code", "antigravity", "openchamber") or "electron" in (meta.get("comment") or "").lower()
+        wm.startswith(("cursor", "code", "antigravity", "openchamber"))
+        or "electron" in (meta.get("comment") or "").lower()
     ):
         # KWin 6.x supports text-input-v2/v3; text-input-v1 was only in 5.27.
         exec_args = "--enable-wayland-ime --wayland-text-input-version=3 %U"

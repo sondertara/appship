@@ -191,7 +191,8 @@ def electron_generic(base_url, local, channel="latest"):
     path = info.get("path") or next((f for f in info["files"] if f.lower().endswith(".appimage")), "")
     if version == "unknown" or not path:
         raise AppShipError("electron 更新文件中没有版本信息")
-    url = urllib.parse.urljoin(base, path)
+    rel = path if path.startswith(("https://", "http://")) else urllib.parse.quote(path, safe="/:@!$&'()*+,;=-._~")
+    url = urllib.parse.urljoin(base, rel)
     sha = info["files"].get(path) or info.get("sha512", "")
     return Update.compare(
         local,
